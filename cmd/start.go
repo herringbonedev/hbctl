@@ -15,21 +15,35 @@ import (
 )
 
 const (
-	composeMongo          = "compose.mongo.yml"
-	composeReceiver       = "compose.logingestion.receiver.yml"
-	composeLogs           = "compose.herringbone.logs.yml"
-	composeParserCardset  = "compose.parser.cardset.yml"
-	composeParserEnrich   = "compose.parser.enrichment.yml"
-	composeParserExtract  = "compose.parser.extractor.yml"
+	composeMongo         = "compose.mongo.yml"
+	composeReceiver      = "compose.logingestion.receiver.yml"
+	composeLogs          = "compose.herringbone.logs.yml"
+	composeParserCardset = "compose.parser.cardset.yml"
+	composeParserEnrich  = "compose.parser.enrichment.yml"
+	composeParserExtract = "compose.parser.extractor.yml"
+	composeDetector      = "compose.detectionengine.detector.yml"
+	composeMatcher       = "compose.detectionengine.matcher.yml"
+	composeRuleset       = "compose.detectionengine.ruleset.yml"
 )
+
+var allServices = []string{
+	"logingestion-receiver",
+	"herringbone-logs",
+	"parser-cardset",
+	"parser-enrichment",
+	"parser-extractor",
+	"detectionengine-detector",
+	"detectionengine-matcher",
+	"detectionengine-ruleset",
+}
 
 func composeFilesForProfile(profile string) []string {
 	files := []string{"-f", composeMongo}
 
 	switch profile {
-	case "receiver":
+	case "logingestion-receiver":
 		files = append(files, "-f", composeReceiver)
-	case "logs":
+	case "herringbone-logs":
 		files = append(files, "-f", composeLogs)
 	case "parser-cardset":
 		files = append(files, "-f", composeParserCardset)
@@ -37,6 +51,12 @@ func composeFilesForProfile(profile string) []string {
 		files = append(files, "-f", composeParserEnrich)
 	case "parser-extractor":
 		files = append(files, "-f", composeParserExtract)
+	case "detectionengine-detector":
+		files = append(files, "-f", composeDetector)
+	case "detectionengine-matcher":
+		files = append(files, "-f", composeMatcher)
+	case "detectionengine-ruleset":
+		files = append(files, "-f", composeRuleset)
 	case "database":
 		// mongo only
 	}
@@ -49,8 +69,10 @@ func init() {
 
 func startCmd(args []string) {
 	fs := flag.NewFlagSet("start", flag.ExitOnError)
-	profile := fs.String("profile", "", "Profile to start (database, receiver, logs, parser-cardset, parser-enrichment, parser-extractor)")
-	recvType := fs.String("type", "", "Receiver type: UDP, TCP, HTTP (required for receiver)")
+	profile := fs.String("profile", "", "Service profile to start")
+	all := fs.Bool("all", false, "Start full Herringbone stack")
+	recvType := fs.String("type", "", "Receiver type (UDP, TCP, HTTP)")
+
 	fs.Parse(args)
 
 	fmt.Println("[hbctl] Decrypting secrets...")
@@ -63,52 +85,64 @@ func startCmd(args []string) {
 	env := map[string]string{
 		"MONGO_ROOT_PASS": "",
 		"MONGO_HOST":      sec.Host,
+		"MONGO_PORT":     fmt.Sprintf("%d", sec.Port),
 		"MONGO_USER":      sec.User,
 		"MONGO_PASS":      sec.Password,
 		"DB_NAME":         sec.Database,
 		"AUTH_DB":         sec.AuthSource,
 		"RECEIVER_TYPE":   "",
+		"MATCHER_API":     "",
 	}
 
+	// ---- START ALL ----
+	if *all {
+		fmt.Println("[hbctl] Starting full Herringbone stack...")
+		ensureDatabase(sec)
+
+		for _, svc := range allServices {
+			if svc == "logingestion-receiver" {
+				env["RECEIVER_TYPE"] = "UDP" // default
+			}
+			startService(env, svc)
+		}
+		return
+	}
+
+	// ---- SINGLE PROFILE ----
 	switch *profile {
 
-	case "receiver":
+	case "logingestion-receiver":
 		if *recvType == "" {
-			fmt.Fprintln(os.Stderr, "Error: --type is required for receiver")
+			fmt.Fprintln(os.Stderr, "Error: --type required for receiver")
 			os.Exit(1)
 		}
 		ensureDatabase(sec)
 		env["RECEIVER_TYPE"] = strings.ToUpper(*recvType)
-		startService(env, *profile, "logingestion-receiver")
+		startService(env, *profile)
 
-	case "logs":
+	case "herringbone-logs",
+		"parser-cardset",
+		"parser-enrichment",
+		"parser-extractor",
+		"detectionengine-detector",
+		"detectionengine-matcher",
+		"detectionengine-ruleset":
 		ensureDatabase(sec)
-		startService(env, *profile, "herringbone-logs")
-
-	case "parser-cardset":
-		ensureDatabase(sec)
-		startService(env, *profile, "parser-cardset")
-
-	case "parser-enrichment":
-		ensureDatabase(sec)
-		startService(env, *profile, "parser-enrichment")
-
-	case "parser-extractor":
-		startService(env, *profile, "parser-extractor")
+		startService(env, *profile)
 
 	case "database":
 		ensureDatabase(sec)
 
 	default:
 		fmt.Fprintln(os.Stderr,
-			"Error: --profile must be one of: database, receiver, logs, parser-cardset, parser-enrichment, parser-extractor")
+			"Error: specify --profile <name> or use --all. Try `hbctl profiles`.")
 		os.Exit(1)
 	}
 }
 
-func startService(env map[string]string, profile, service string) {
+func startService(env map[string]string, service string) {
 	args := []string{"-p", composeProject}
-	args = append(args, composeFilesForProfile(profile)...)
+	args = append(args, composeFilesForProfile(service)...)
 	args = append(args, "up", "-d", "--no-recreate", service)
 
 	fmt.Println("[hbctl] Starting", service, "...")
@@ -140,12 +174,12 @@ func ensureDatabase(sec *secrets.MongoSecret) {
 		"MONGO_ROOT_PASS": rootPass,
 	}
 
-	args := []string{"-p", composeProject}
-	args = append(args, composeFilesForProfile("database")...)
-	args = append(args, "up", "-d", "mongodb")
-
 	fmt.Println("[hbctl] Ensuring MongoDB is running...")
-	if err := docker.ComposeWithEnv(env, args...); err != nil {
+	if err := docker.ComposeWithEnv(env,
+		"-p", composeProject,
+		"-f", composeMongo,
+		"up", "-d", "mongodb",
+	); err != nil {
 		os.Exit(1)
 	}
 
