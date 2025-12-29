@@ -15,15 +15,16 @@ import (
 )
 
 const (
-	composeMongo         = "compose.mongo.yml"
-	composeReceiver      = "compose.logingestion.receiver.yml"
-	composeLogs          = "compose.herringbone.logs.yml"
-	composeParserCardset = "compose.parser.cardset.yml"
-	composeParserEnrich  = "compose.parser.enrichment.yml"
-	composeParserExtract = "compose.parser.extractor.yml"
-	composeDetector      = "compose.detectionengine.detector.yml"
-	composeMatcher       = "compose.detectionengine.matcher.yml"
-	composeRuleset       = "compose.detectionengine.ruleset.yml"
+	composeMongo           = "compose.mongo.yml"
+	composeReceiver        = "compose.logingestion.receiver.yml"
+	composeLogs            = "compose.herringbone.logs.yml"
+	composeParserCardset   = "compose.parser.cardset.yml"
+	composeParserEnrich    = "compose.parser.enrichment.yml"
+	composeParserExtract   = "compose.parser.extractor.yml"
+	composeDetector        = "compose.detectionengine.detector.yml"
+	composeMatcher         = "compose.detectionengine.matcher.yml"
+	composeRuleset         = "compose.detectionengine.ruleset.yml"
+	composeOperationsCenter = "compose.operations.center.yml"
 )
 
 var allServices = []string{
@@ -35,6 +36,7 @@ var allServices = []string{
 	"detectionengine-detector",
 	"detectionengine-matcher",
 	"detectionengine-ruleset",
+	"operations-center",
 }
 
 func composeFilesForProfile(profile string) []string {
@@ -57,6 +59,8 @@ func composeFilesForProfile(profile string) []string {
 		files = append(files, "-f", composeMatcher)
 	case "detectionengine-ruleset":
 		files = append(files, "-f", composeRuleset)
+	case "operations-center":
+		files = append(files, "-f", composeOperationsCenter)
 	case "database":
 		// mongo only
 	}
@@ -101,7 +105,7 @@ func startCmd(args []string) {
 
 		for _, svc := range allServices {
 			if svc == "logingestion-receiver" {
-				env["RECEIVER_TYPE"] = "UDP" // default
+				env["RECEIVER_TYPE"] = "UDP"
 			}
 			startService(env, svc)
 		}
@@ -126,7 +130,8 @@ func startCmd(args []string) {
 		"parser-extractor",
 		"detectionengine-detector",
 		"detectionengine-matcher",
-		"detectionengine-ruleset":
+		"detectionengine-ruleset",
+		"operations-center":
 		ensureDatabase(sec)
 		startService(env, *profile)
 
