@@ -1,4 +1,4 @@
-package login
+package cmd
 
 import (
 	"flag"
@@ -8,6 +8,26 @@ import (
 	"github.com/herringbonedev/hbctl/internal/secrets"
 )
 
+func init() {
+	Register("login", loginCmd)
+}
+
+func loginCmd(args []string) {
+	if len(args) < 1 {
+		fmt.Fprintln(os.Stderr, "Usage: hbctl login <backend>")
+		fmt.Fprintln(os.Stderr, "Available backends: mongodb")
+		os.Exit(1)
+	}
+
+	switch args[0] {
+	case "mongodb":
+		loginMongo(args[1:])
+	default:
+		fmt.Fprintln(os.Stderr, "Unknown backend:", args[0])
+		os.Exit(1)
+	}
+}
+
 func loginMongo(args []string) {
 	fs := flag.NewFlagSet("login mongodb", flag.ExitOnError)
 
@@ -15,10 +35,10 @@ func loginMongo(args []string) {
 	password := fs.String("password", "", "MongoDB password (required)")
 	host := fs.String("host", "", "MongoDB host (required)")
 
-	database := fs.String("database", "", "Database name")
+	database := fs.String("database", "herringbone", "Database name")
 	collection := fs.String("collection", "", "Collection name")
 	port := fs.Int("port", 27017, "MongoDB port")
-	authSource := fs.String("auth-source", "herringbone", "Auth source database")
+	authSource := fs.String("auth-source", "admin", "Auth source database")
 	replicaSet := fs.String("replica-set", "", "Replica set name")
 
 	fs.Parse(args)
@@ -37,7 +57,7 @@ func loginMongo(args []string) {
 		Database:    *database,
 		Collection:  *collection,
 		AuthSource:  *authSource,
-		ReplicaSet: *replicaSet,
+		ReplicaSet:  *replicaSet,
 	}
 
 	if err := secrets.SaveMongo(secret); err != nil {

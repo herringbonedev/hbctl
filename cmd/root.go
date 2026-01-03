@@ -57,11 +57,11 @@ func printHelp() {
 	fmt.Println()
 	fmt.Println("Common examples:")
 	fmt.Println("  hbctl profiles")
-	fmt.Println("  hbctl start --profile receiver --type UDP")
-	fmt.Println("  hbctl start --profile logs")
+	fmt.Println("  hbctl start --profile logingestion-receiver--type UDP")
+	fmt.Println("  hbctl start --profile herringbone-logs")
 	fmt.Println("  hbctl status")
 	fmt.Println("  hbctl stop")
-	fmt.Println("  hbctl help receiver")
+	fmt.Println("  hbctl help logingestion-receiver")
 	fmt.Println()
 }
 
