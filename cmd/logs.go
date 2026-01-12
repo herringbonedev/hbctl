@@ -15,15 +15,15 @@ func init() {
 func logsCmd(args []string) {
 	fs := flag.NewFlagSet("logs", flag.ExitOnError)
 
-	profile := fs.String("profile", "", "Compose profile to show logs for (e.g. receiver, database)")
+	unit := fs.String("unit", "", "Unit (subsystem) to show logs for (e.g. parser, detection, incidents)")
 	follow := fs.Bool("follow", false, "Follow log output")
 	tail := fs.Int("tail", 0, "Number of lines to show from the end of logs")
 
 	fs.Parse(args)
 
-	services := fs.Args() // optional service names
+	// Remaining args are element names
+	elements := fs.Args()
 
-	// Empty env to silence compose warnings
 	env := map[string]string{
 		"MONGO_USER":    "",
 		"MONGO_PASS":    "",
@@ -35,9 +35,14 @@ func logsCmd(args []string) {
 	var composeArgs []string
 	composeArgs = append(composeArgs, "-p", composeProject)
 
-	if *profile != "" {
-		fmt.Println("[hbctl] Using profile:", *profile)
-		composeArgs = append(composeArgs, "--profile", *profile)
+	if *unit != "" {
+		fmt.Println("[hbctl] Using unit:", *unit)
+		services := unitElements[*unit]
+		if len(services) == 0 {
+			fmt.Fprintln(os.Stderr, "Unknown unit:", *unit)
+			os.Exit(1)
+		}
+		elements = services
 	}
 
 	composeArgs = append(composeArgs, "logs")
@@ -49,8 +54,7 @@ func logsCmd(args []string) {
 		composeArgs = append(composeArgs, "--tail", fmt.Sprint(*tail))
 	}
 
-	// Append service filters if provided
-	composeArgs = append(composeArgs, services...)
+	composeArgs = append(composeArgs, elements...)
 
 	if err := docker.ComposeWithEnv(env, composeArgs...); err != nil {
 		os.Exit(1)

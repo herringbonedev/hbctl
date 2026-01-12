@@ -15,34 +15,26 @@ import (
 )
 
 const (
-	composeMongo           = "compose.mongo.yml"
-	composeReceiver        = "compose.logingestion.receiver.yml"
-	composeLogs            = "compose.herringbone.logs.yml"
-	composeParserCardset   = "compose.parser.cardset.yml"
-	composeParserEnrich    = "compose.parser.enrichment.yml"
-	composeParserExtract   = "compose.parser.extractor.yml"
-	composeDetector        = "compose.detectionengine.detector.yml"
-	composeMatcher         = "compose.detectionengine.matcher.yml"
-	composeRuleset         = "compose.detectionengine.ruleset.yml"
-	composeOperationsCenter = "compose.operations.center.yml"
+	composeMongo                = "compose.mongo.yml"
+	composeReceiver             = "compose.logingestion.receiver.yml"
+	composeLogs                 = "compose.herringbone.logs.yml"
+	composeParserCardset        = "compose.parser.cardset.yml"
+	composeParserEnrich         = "compose.parser.enrichment.yml"
+	composeParserExtract        = "compose.parser.extractor.yml"
+	composeDetector             = "compose.detectionengine.detector.yml"
+	composeMatcher              = "compose.detectionengine.matcher.yml"
+	composeRuleset              = "compose.detectionengine.ruleset.yml"
+	composeOperationsCenter     = "compose.operations.center.yml"
+	composeIncidentSet          = "compose.incidents.incidentset.yml"
+	composeIncidentCorrelator   = "compose.incidents.correlator.yml"
+	composeIncidentOrchestrator = "compose.incidents.orchestrator.yml"
+	composeSearch               = "compose.herringbone.search.yml"
 )
 
-var allServices = []string{
-	"logingestion-receiver",
-	"herringbone-logs",
-	"parser-cardset",
-	"parser-enrichment",
-	"parser-extractor",
-	"detectionengine-detector",
-	"detectionengine-matcher",
-	"detectionengine-ruleset",
-	"operations-center",
-}
-
-func composeFilesForProfile(profile string) []string {
+func composeFilesForElement(element string) []string {
 	files := []string{"-f", composeMongo}
 
-	switch profile {
+	switch element {
 	case "logingestion-receiver":
 		files = append(files, "-f", composeReceiver)
 	case "herringbone-logs":
@@ -61,9 +53,16 @@ func composeFilesForProfile(profile string) []string {
 		files = append(files, "-f", composeRuleset)
 	case "operations-center":
 		files = append(files, "-f", composeOperationsCenter)
-	case "database":
-		// mongo only
+	case "incidents-incidentset":
+		files = append(files, "-f", composeIncidentSet)
+	case "incidents-correlator":
+		files = append(files, "-f", composeIncidentCorrelator)
+	case "incidents-orchestrator":
+		files = append(files, "-f", composeIncidentOrchestrator)
+	case "herringbone-search":
+		files = append(files, "-f", composeSearch)
 	}
+
 	return files
 }
 
@@ -73,10 +72,10 @@ func init() {
 
 func startCmd(args []string) {
 	fs := flag.NewFlagSet("start", flag.ExitOnError)
-	profile := fs.String("profile", "", "Service profile to start")
+	element := fs.String("element", "", "Element (service) to start")
+	unit := fs.String("unit", "", "Unit (subsystem) to start")
 	all := fs.Bool("all", false, "Start full Herringbone stack")
 	recvType := fs.String("type", "", "Receiver type (UDP, TCP, HTTP)")
-
 	fs.Parse(args)
 
 	fmt.Println("[hbctl] Decrypting secrets...")
@@ -89,7 +88,7 @@ func startCmd(args []string) {
 	env := map[string]string{
 		"MONGO_ROOT_PASS": "",
 		"MONGO_HOST":      sec.Host,
-		"MONGO_PORT":     fmt.Sprintf("%d", sec.Port),
+		"MONGO_PORT":      fmt.Sprintf("%d", sec.Port),
 		"MONGO_USER":      sec.User,
 		"MONGO_PASS":      sec.Password,
 		"DB_NAME":         sec.Database,
@@ -98,59 +97,60 @@ func startCmd(args []string) {
 		"MATCHER_API":     "",
 	}
 
-	// ---- START ALL ----
 	if *all {
 		fmt.Println("[hbctl] Starting full Herringbone stack...")
 		ensureDatabase(sec)
 
-		for _, svc := range allServices {
-			if svc == "logingestion-receiver" {
+		for _, e := range allElements {
+			if e.Name == "logingestion-receiver" {
 				env["RECEIVER_TYPE"] = "UDP"
 			}
-			startService(env, svc)
+			startElement(env, e.Name)
 		}
 		return
 	}
 
-	// ---- SINGLE PROFILE ----
-	switch *profile {
+	if *unit != "" {
+		ensureDatabase(sec)
 
-	case "logingestion-receiver":
-		if *recvType == "" {
+		elements := unitElements[*unit]
+		if len(elements) == 0 {
+			fmt.Fprintln(os.Stderr, "Unknown unit:", *unit)
+			os.Exit(1)
+		}
+
+		for _, el := range elements {
+			startElement(env, el)
+		}
+		return
+	}
+
+	if *element != "" {
+		if *element == "logingestion-receiver" && *recvType == "" {
 			fmt.Fprintln(os.Stderr, "Error: --type required for receiver")
 			os.Exit(1)
 		}
-		ensureDatabase(sec)
-		env["RECEIVER_TYPE"] = strings.ToUpper(*recvType)
-		startService(env, *profile)
 
-	case "herringbone-logs",
-		"parser-cardset",
-		"parser-enrichment",
-		"parser-extractor",
-		"detectionengine-detector",
-		"detectionengine-matcher",
-		"detectionengine-ruleset",
-		"operations-center":
-		ensureDatabase(sec)
-		startService(env, *profile)
-
-	case "database":
 		ensureDatabase(sec)
 
-	default:
-		fmt.Fprintln(os.Stderr,
-			"Error: specify --profile <name> or use --all. Try `hbctl profiles`.")
-		os.Exit(1)
+		if *recvType != "" {
+			env["RECEIVER_TYPE"] = strings.ToUpper(*recvType)
+		}
+
+		startElement(env, *element)
+		return
 	}
+
+	fmt.Fprintln(os.Stderr, "Error: specify --element, --unit, or --all")
+	os.Exit(1)
 }
 
-func startService(env map[string]string, service string) {
+func startElement(env map[string]string, element string) {
 	args := []string{"-p", composeProject}
-	args = append(args, composeFilesForProfile(service)...)
-	args = append(args, "up", "-d", "--no-recreate", service)
+	args = append(args, composeFilesForElement(element)...)
+	args = append(args, "up", "-d", "--no-recreate", element)
 
-	fmt.Println("[hbctl] Starting", service, "...")
+	fmt.Println("[hbctl] Starting", element, "...")
 	if err := docker.ComposeWithEnv(env, args...); err != nil {
 		os.Exit(1)
 	}
