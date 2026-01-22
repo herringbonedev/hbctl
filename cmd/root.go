@@ -57,11 +57,13 @@ func printHelp() {
 	fmt.Println()
 	fmt.Println("Common examples:")
 	fmt.Println("  hbctl profiles")
-	fmt.Println("  hbctl start --profile logingestion-receiver--type UDP")
-	fmt.Println("  hbctl start --profile herringbone-logs")
+	fmt.Println("  hbctl groups")
+	fmt.Println("  hbctl start --element logingestion-receiver --type UDP")
+	fmt.Println("  hbctl start --element herringbone-logs")
 	fmt.Println("  hbctl status")
-	fmt.Println("  hbctl stop")
-	fmt.Println("  hbctl help logingestion-receiver")
+	fmt.Println("  hbctl status --unit detection")
+	fmt.Println("  hbctl status --element parser-extractor")
+	fmt.Println("  hbctl stop --element herringbone-search")
 	fmt.Println()
 }
 
@@ -72,15 +74,15 @@ func commandDesc(name string) string {
 	case "status":
 		return "Show status of running services"
 	case "profiles":
-		return "List available stack profiles"
-	case "help":
-		return "Show help for a profile"
+		return "List available elements (services)"
+	case "groups":
+		return "List available units (service groups)"
 	case "start":
-		return "Start a profile"
+		return "Start an element or unit"
 	case "stop":
-		return "Stop a profile (or all)"
+		return "Stop an element or entire stack"
 	case "restart":
-		return "Restart a profile (or all)"
+		return "Restart an element or unit"
 	case "login":
 		return "Store encrypted service credentials"
 	default:

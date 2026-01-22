@@ -30,17 +30,26 @@ type ContainerStatus struct {
 	Publishers []Publisher `json:"Publishers"`
 }
 
-var profileServices = map[string][]string{
-	"logs":           {"herringbone-logs", "mongodb"},
-	"receiver":       {"logingestion-receiver", "mongodb"},
-	"parser-cardset": {"parser-cardset", "mongodb"},
-	"database":       {"mongodb"},
+var serviceUnits = map[string][]string{
+	"logs":      {"herringbone-logs", "herringbone-search", "mongodb"},
+	"search":    {"herringbone-search", "mongodb"},
+	"receiver":  {"logingestion-receiver", "mongodb"},
+	"parser":    {"parser-cardset", "parser-enrichment", "parser-extractor"},
+	"detection": {"detectionengine-detector", "detectionengine-matcher", "detectionengine-ruleset"},
+	"incidents": {"incidents-incidentset", "incidents-correlator", "incidents-orchestrator", "mongodb"},
+	"database":  {"mongodb"},
 }
 
 func statusCmd(args []string) {
 	fs := flag.NewFlagSet("status", flag.ExitOnError)
-	profile := fs.String("profile", "", "Filter by profile (logs, receiver, parser-cardset, database)")
+	element := fs.String("element", "", "Filter by exact element (service) name")
+	unit := fs.String("unit", "", "Filter by unit (subsystem)")
 	fs.Parse(args)
+
+	if *element != "" && *unit != "" {
+		fmt.Fprintln(os.Stderr, "Error: use either --element or --unit, not both")
+		os.Exit(1)
+	}
 
 	cmd := exec.Command("docker", "compose", "-p", composeProject, "ps", "--format", "json")
 	var out bytes.Buffer
@@ -48,7 +57,7 @@ func statusCmd(args []string) {
 	cmd.Stderr = os.Stderr
 
 	if err := cmd.Run(); err != nil {
-		fmt.Fprintln(os.Stderr, "Failed to run docker compose ps:", err)
+		fmt.Fprintln(os.Stderr, "docker compose ps failed:", err)
 		os.Exit(1)
 	}
 
@@ -56,30 +65,19 @@ func statusCmd(args []string) {
 	var rows []ContainerStatus
 
 	for _, line := range lines {
-		if strings.TrimSpace(line) == "" {
+		if line == "" {
 			continue
 		}
-
 		var c ContainerStatus
-		if err := json.Unmarshal([]byte(line), &c); err != nil {
-			fmt.Fprintln(os.Stderr, "Failed to parse docker output:", err)
-			continue
-		}
+		_ = json.Unmarshal([]byte(line), &c)
 		rows = append(rows, c)
 	}
 
-	if len(rows) == 0 {
-		fmt.Println("No containers found.")
-		return
-	}
-
 	w := tabwriter.NewWriter(os.Stdout, 2, 4, 2, ' ', 0)
-
 	fmt.Fprintln(w, "NAME\tSERVICE\tSTATE\tPORTS")
-	fmt.Fprintln(w, "---------------------------------------------------------------------------------------------------------")
 
 	for _, c := range rows {
-		if !allowed(*profile, c.Service) {
+		if !allowedService(*element, *unit, c.Service) {
 			continue
 		}
 
@@ -87,35 +85,38 @@ func statusCmd(args []string) {
 		for _, p := range c.Publishers {
 			if p.PublishedPort > 0 {
 				ports = append(ports,
-					fmt.Sprintf("%s:%d->%d/%s", p.URL, p.PublishedPort, p.TargetPort, strings.ToLower(p.Protocol)),
+					fmt.Sprintf("%s:%d->%d/%s",
+						p.URL, p.PublishedPort, p.TargetPort, strings.ToLower(p.Protocol)),
 				)
 			}
 		}
 
-		portStr := strings.Join(ports, ", ")
-		if portStr == "" {
-			portStr = "-"
+		portStr := "-"
+		if len(ports) > 0 {
+			portStr = strings.Join(ports, ", ")
 		}
 
 		fmt.Fprintf(w, "%s\t%s\t%s\t%s\n",
-			c.Name,
-			c.Service,
-			c.State,
-			portStr,
-		)
+			c.Name, c.Service, c.State, portStr)
 	}
 
 	w.Flush()
 }
 
-func allowed(profile, svc string) bool {
-	if profile == "" {
-		return true
+func allowedService(element, unit, svc string) bool {
+	if element != "" {
+		return svc == element
 	}
-	allowedSvcs, ok := profileServices[profile]
-	if !ok {
-		return true
+
+	if unit != "" {
+		return allowedUnit(unit, svc)
 	}
+
+	return true
+}
+
+func allowedUnit(unit, svc string) bool {
+	allowedSvcs := serviceUnits[unit]
 	for _, s := range allowedSvcs {
 		if s == svc {
 			return true
