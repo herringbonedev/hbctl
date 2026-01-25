@@ -7,13 +7,11 @@ import (
 	"os"
 	"sort"
 	"strings"
+
+	"github.com/herringbonedev/hbctl/internal/units"
 )
 
-type elementInfo struct {
-	Name        string `json:"name"`
-	Description string `json:"description"`
-	Unit        string `json:"unit"`
-}
+type elementInfo = units.ElementInfo
 
 func init() {
 	Register("elements", elementsCmd)
@@ -29,10 +27,10 @@ func elementsCmd(args []string) {
 
 	var out []elementInfo
 	if *filter == "" {
-		out = allElements
+		out = units.AllElements
 	} else {
 		f := strings.ToLower(*filter)
-		for _, e := range allElements {
+		for _, e := range units.AllElements {
 			if strings.Contains(strings.ToLower(e.Name), f) ||
 				strings.Contains(strings.ToLower(e.Description), f) ||
 				strings.Contains(strings.ToLower(e.Unit), f) {
@@ -82,24 +80,5 @@ func elementsCmd(args []string) {
 			fmt.Printf("  %-26s %s\n", e.Name, e.Description)
 		}
 	}
-}
-
-var allElements = []elementInfo{
-	{Name: "logingestion-receiver", Description: "UDP/TCP/HTTP log ingestion receiver", Unit: "receiver"},
-
-	{Name: "herringbone-logs", Description: "Logs API", Unit: "logs"},
-	{Name: "herringbone-search", Description: "Read-only search API over MongoDB collections", Unit: "search"},
-
-	{Name: "parser-cardset", Description: "Cardset metadata parser service", Unit: "parser"},
-	{Name: "parser-enrichment", Description: "Log enrichment parser service", Unit: "parser"},
-	{Name: "parser-extractor", Description: "Regex/JSONPath extractor service", Unit: "parser"},
-
-	{Name: "detectionengine-detector", Description: "Detection engine detector service", Unit: "detection"},
-	{Name: "detectionengine-matcher", Description: "Detection engine matcher service", Unit: "detection"},
-	{Name: "detectionengine-ruleset", Description: "Detection engine ruleset service", Unit: "detection"},
-
-	{Name: "incidents-incidentset", Description: "Incident aggregation and tracking service", Unit: "incidents"},
-	{Name: "incidents-correlator", Description: "Incident correlation engine", Unit: "incidents"},
-	{Name: "incidents-orchestrator", Description: "Incident orchestration service", Unit: "incidents"},
 }
 

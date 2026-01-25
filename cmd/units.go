@@ -4,6 +4,8 @@ import (
 	"flag"
 	"fmt"
 	"sort"
+
+	"github.com/herringbonedev/hbctl/internal/units"
 )
 
 func init() {
@@ -15,7 +17,7 @@ func unitsCmd(args []string) {
 	fs.Parse(args)
 
 	var names []string
-	for u := range serviceUnits {
+	for u := range units.ServiceUnits {
 		names = append(names, u)
 	}
 

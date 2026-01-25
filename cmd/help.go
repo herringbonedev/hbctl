@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"github.com/herringbonedev/hbctl/internal/units"
 	"fmt"
 	"os"
 )
@@ -30,14 +31,14 @@ func helpCmd(args []string) {
 	fmt.Println()
 
 	fmt.Println(colorBold + "Elements:" + colorReset)
-	for _, e := range allElements {
+	for _, e := range units.AllElements {
 		fmt.Printf("  %-28s %s\n", e.Name, e.Description)
 	}
 	fmt.Println()
 
 	fmt.Println(colorBold + "Units:" + colorReset)
 	seen := map[string]bool{}
-	for _, e := range allElements {
+	for _, e := range units.AllElements {
 		if !seen[e.Unit] {
 			fmt.Printf("  %s\n", e.Unit)
 			seen[e.Unit] = true

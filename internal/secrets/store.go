@@ -20,6 +20,8 @@ const (
 	keySize  = 32
 )
 
+var cachedPassphrase string
+
 func secretsPath() (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -82,6 +84,60 @@ func SaveMongo(secret *MongoSecret) error {
 	return os.Rename(tmp, path)
 }
 
+func SaveJWTSecret(secret *JWTSecret) error {
+	path, err := secretsPath()
+	if err != nil {
+		return err
+	}
+
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		return err
+	}
+
+	firstTime := false
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		firstTime = true
+	}
+
+	pass, err := getPassphrase(firstTime)
+	if err != nil {
+		return err
+	}
+
+	var store Store
+
+	if !firstTime {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		plain, err := decrypt(data, pass)
+		if err != nil {
+			return errors.New("failed to decrypt secrets (wrong passphrase?)")
+		}
+		_ = json.Unmarshal(plain, &store)
+	}
+
+	store.JWTSecret = secret
+
+	plain, err := json.MarshalIndent(store, "", "  ")
+	if err != nil {
+		return err
+	}
+
+	enc, err := encrypt(plain, pass)
+	if err != nil {
+		return err
+	}
+
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, enc, 0600); err != nil {
+		return err
+	}
+	return os.Rename(tmp, path)
+}
+
 func LoadMongo() (*MongoSecret, error) {
 	path, err := secretsPath()
 	if err != nil {
@@ -115,10 +171,48 @@ func LoadMongo() (*MongoSecret, error) {
 	return store.MongoDB, nil
 }
 
+func LoadJWTSecret() (*JWTSecret, error) {
+	path, err := secretsPath()
+	if err != nil {
+		return nil, err
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+
+	pass, err := getPassphrase(false)
+	if err != nil {
+		return nil, err
+	}
+
+	plain, err := decrypt(data, pass)
+	if err != nil {
+		return nil, errors.New("failed to decrypt secrets (wrong passphrase?)")
+	}
+
+	var store Store
+	if err := json.Unmarshal(plain, &store); err != nil {
+		return nil, err
+	}
+
+	if store.JWTSecret == nil {
+		return nil, errors.New("no jwt secret stored")
+	}
+
+	return store.JWTSecret, nil
+}
+
 /* ---------- passphrase ---------- */
 
 func getPassphrase(confirm bool) (string, error) {
+	if cachedPassphrase != "" {
+		return cachedPassphrase, nil
+	}
+
 	if v := os.Getenv("HBCTL_PASSPHRASE"); v != "" {
+		cachedPassphrase = v
 		return v, nil
 	}
 
@@ -144,7 +238,95 @@ func getPassphrase(confirm bool) (string, error) {
 		}
 	}
 
-	return string(p1), nil
+	cachedPassphrase = string(p1)
+	return cachedPassphrase, nil
+}
+
+func SaveServiceKey(secret *ServiceKey) error {
+    path, err := secretsPath()
+    if err != nil {
+        return err
+    }
+
+    dir := filepath.Dir(path)
+    if err := os.MkdirAll(dir, 0700); err != nil {
+        return err
+    }
+
+    firstTime := false
+    if _, err := os.Stat(path); os.IsNotExist(err) {
+        firstTime = true
+    }
+
+    pass, err := getPassphrase(firstTime)
+    if err != nil {
+        return err
+    }
+
+    var store Store
+
+    if !firstTime {
+        data, err := os.ReadFile(path)
+        if err != nil {
+            return err
+        }
+        plain, err := decrypt(data, pass)
+        if err != nil {
+            return errors.New("failed to decrypt secrets (wrong passphrase?)")
+        }
+        _ = json.Unmarshal(plain, &store)
+    }
+
+    store.ServiceKey = secret
+
+    plain, err := json.MarshalIndent(store, "", "  ")
+    if err != nil {
+        return err
+    }
+
+    enc, err := encrypt(plain, pass)
+    if err != nil {
+        return err
+    }
+
+    tmp := path + ".tmp"
+    if err := os.WriteFile(tmp, enc, 0600); err != nil {
+        return err
+    }
+    return os.Rename(tmp, path)
+}
+
+func LoadServiceKey() (*ServiceKey, error) {
+    path, err := secretsPath()
+    if err != nil {
+        return nil, err
+    }
+
+    data, err := os.ReadFile(path)
+    if err != nil {
+        return nil, err
+    }
+
+    pass, err := getPassphrase(false)
+    if err != nil {
+        return nil, err
+    }
+
+    plain, err := decrypt(data, pass)
+    if err != nil {
+        return nil, errors.New("failed to decrypt secrets (wrong passphrase?)")
+    }
+
+    var store Store
+    if err := json.Unmarshal(plain, &store); err != nil {
+        return nil, err
+    }
+
+    if store.ServiceKey == nil {
+        return nil, errors.New("no service key stored")
+    }
+
+    return store.ServiceKey, nil
 }
 
 /* ---------- crypto ---------- */

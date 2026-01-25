@@ -21,7 +21,7 @@ func EnsureUser(
 ) error {
 
 	uri := fmt.Sprintf(
-		"mongodb://root:%s@%s:%d/admin?authSource=admin",
+		"mongodb://root:%s@%s:%d/admin",
 		rootPass, host, port,
 	)
 
