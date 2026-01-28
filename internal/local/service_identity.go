@@ -65,6 +65,21 @@ var BootstrapServices = []ServiceIdentity{
         ID:     serviceUUID("detectionengine-detector"),
         Scopes: []string{
 			"incidents:orchestrate",
+			"detectionengine:run",
+        },
+    },
+	{
+        Name:   "detectionengine-matcher",
+        ID:     serviceUUID("detectionengine-matcher"),
+        Scopes: []string{
+			"detectionengine:run",
+        },
+    },
+		{
+        Name:   "detectionengine-ruleset",
+        ID:     serviceUUID("detectionengine-ruleset"),
+        Scopes: []string{
+			"rules:read",
         },
     },
 }

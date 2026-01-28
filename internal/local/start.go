@@ -305,6 +305,26 @@ func prepareAuthSecrets(secretsDir, jwtSecret, svcPriv, svcPub string) error {
 			return err
 		}
 	}
+	
+	bootstrapPath := filepath.Join(secretsDir, "bootstrap_token")
+
+	if _, err := os.Stat(bootstrapPath); os.IsNotExist(err) {
+		token, err := generateBootstrapToken(32)
+		if err != nil {
+			return fmt.Errorf("failed generating bootstrap token: %w", err)
+		}
+
+		if err := os.WriteFile(bootstrapPath, []byte(token), 0444); err != nil {
+			return fmt.Errorf("failed writing bootstrap_token: %w", err)
+		}
+		if err := os.Chmod(bootstrapPath, 0444); err != nil {
+			return err
+		}
+
+		fmt.Println("[hbctl] Generated bootstrap token")
+	} else {
+		fmt.Println("[hbctl] Bootstrap token already exists")
+	}
 
 	return nil
 }
@@ -420,6 +440,14 @@ func uuidString() string {
 	b := make([]byte, 16)
 	_, _ = rand.Read(b)
 	return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:])
+}
+
+func generateBootstrapToken(n int) (string, error) {
+	b := make([]byte, n)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	return base64.RawURLEncoding.EncodeToString(b), nil
 }
 
 func randomPassword(n int) string {
