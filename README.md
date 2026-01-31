@@ -18,7 +18,7 @@ Recommended layout:
   herringbone/
 ```
 
-hbctl must be **executed from the Herringbone repository root**, where `compose.*.yml` files live.
+hbctl must be **executed from the Herringbone repository ./docker/ directory**, where `compose.*.yml` files live.
 
 ## Core Concepts
 
