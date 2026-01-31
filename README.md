@@ -1,26 +1,80 @@
-# hbctl — Herringbone Control CLI
+# hbctl
 
-`hbctl` is a lightweight control plane for running Herringbone components locally using
-Docker Compose. It manages secrets, bootstraps MongoDB, and starts/stops modular services
-via simple profiles.
+**hbctl** is the control-plane CLI for the Herringbone platform.
 
-It is designed to feel like a local SOC control plane for Herringbone: simple commands,
-modular services, and secure defaults.
+It is used to discover, start, stop, restart, and inspect Herringbone services locally using **Docker Compose**, while managing encrypted credentials and enforcing the platform’s **unit / element** model.
+
+hbctl is intentionally opinionated and is the **only supported way** to operate Herringbone locally.
 
 ---
 
-## Installation
+## What hbctl Is (and Is Not)
 
-From the hbctl source directory:
+**hbctl is:**
+- A platform control CLI
+- A Docker Compose orchestrator for Herringbone
+- A secrets-aware runtime launcher
+- Unit / element aware
 
-```bash
-go install
+**hbctl is not:**
+- A wrapper around `docker compose`
+- A generic container manager
+- A Kubernetes tool (yet)
+
+---
+
+## Repository Relationship
+
+hbctl lives in its **own repository** and operates against a **separate Herringbone checkout**.
+
+Recommended layout:
+
+```text
+~/src/herringbone/
+  hbctl/
+  herringbone/
 ```
 
-Ensure your Go bin is on PATH:
+hbctl must be **executed from the Herringbone repository root**, where `compose.*.yml` files live.
+
+---
+
+## Core Concepts
+
+### Units
+A **unit** is a logical subsystem of the Herringbone platform.
+
+Examples:
+- `auth`
+- `parser`
+- `detection`
+- `incidents`
+- `search`
+- `logs`
+
+### Elements
+An **element** is a single deployable service inside a unit.
+
+Examples:
+- `herringbone-auth`
+- `parser-extractor`
+- `detectionengine-detector`
+- `operations-center`
+
+hbctl enforces this model consistently across all commands.
+
+---
+
+## Building hbctl
 
 ```bash
-export PATH="$HOME/go/bin:$PATH"
+go build -o hbctl
+```
+
+(Optional) install globally:
+
+```bash
+sudo mv hbctl /usr/local/bin/
 ```
 
 Verify:
@@ -31,172 +85,66 @@ hbctl version
 
 ---
 
-## Working Directory
+## Encrypted Secrets
 
-Run `hbctl` from the directory that contains your compose files, for example:
+hbctl stores encrypted credentials locally at:
 
-```bash
-Projects/Herringbone/docker/
+```text
+~/.hbctl/secrets.enc
 ```
 
-This directory should contain files like:
+Secrets are written using:
 
-- `compose.mongo.yml`
-- `compose.logingestion.receiver.yml`
-- `compose.herringbone.logs.yml`
-- `compose.parser.cardset.yml`
-- `compose.parser.enrichment.yml`
-- `compose.parser.extractor.yml`
-- `compose.detectionengine.detector.yml`
-- `compose.detectionengine.matcher.yml`
-- `compose.detectionengine.ruleset.yml`
-- `compose.ui.operations-center.yml`
+```bash
+hbctl login <backend>
+```
+
+Supported backends:
+- `mongodb`
+- `jwtsecret`
+- `servicekey`
+
+Secrets are decrypted only at runtime.
 
 ---
 
-## Secrets
+## Common Commands
 
-hbctl stores MongoDB credentials in an encrypted local file.
-
-Create/update the secret:
+Discover platform components:
 
 ```bash
-hbctl login mongodb \
-  --user <username> \
-  --password <password> \
-  --database <db> \
-  --collection <collection> \
-  --host <host> \
-  [--port 27017] \
-  [--auth-source herringbone]
+hbctl units
+hbctl elements
 ```
 
-Example (for Docker network use):
-
-```bash
-hbctl login mongodb \
-  --user hbuser \
-  --password hbpass \
-  --database herringbone \
-  --collection logs \
-  --host mongodb
-```
-
-You will be prompted for an encryption passphrase.
-
----
-
-## Profiles
-
-hbctl manages services using **profiles**. Each profile maps to a compose file layered
-on top of `compose.mongo.yml`.
-
-List available profiles:
-
-```bash
-hbctl profiles
-```
-
-Wide table view (shows groups):
-
-```bash
-hbctl profiles --wide
-```
-
-Names only (for scripting):
-
-```bash
-hbctl profiles --names
-```
-
-Filter:
-
-```bash
-hbctl profiles --filter parser
-```
-
-JSON output:
-
-```bash
-hbctl profiles --json
-```
-
-### Available Profiles
-
-| Group      | Profile                    | Description                         |
-|------------|----------------------------|-------------------------------------|
-| Ingestion  | `logingestion-receiver`    | UDP/TCP/HTTP log ingestion receiver  |
-| Core       | `herringbone-logs`         | Logs API service                |
-| Parser     | `parser-cardset`           | Cardset metadata parser service      |
-| Parser     | `parser-enrichment`        | Log enrichment parser service        |
-| Parser     | `parser-extractor`         | Regex/JSONPath extractor service     |
-| Detection  | `detectionengine-detector` | Detection engine detector service    |
-| Detection  | `detectionengine-matcher`  | Detection engine matcher service     |
-| Detection  | `detectionengine-ruleset`  | Detection engine ruleset service     |
-| Ops        | `operations-center`        | Operations Center UI / control plane |
-
-MongoDB is automatically started and bootstrapped when required.
-
----
-
-## Start Services
-
-Start MongoDB only:
-
-```bash
-hbctl start --profile database
-```
-
-Start receiver (requires type):
-
-```bash
-hbctl start --profile logingestion-receiver --type UDP
-hbctl start --profile logingestion-receiver --type TCP
-hbctl start --profile logingestion-receiver --type HTTP
-```
-
-Start other services:
-
-```bash
-hbctl start --profile herringbone-logs
-hbctl start --profile parser-cardset
-hbctl start --profile parser-enrichment
-hbctl start --profile parser-extractor
-hbctl start --profile detectionengine-detector
-hbctl start --profile detectionengine-matcher
-hbctl start --profile detectionengine-ruleset
-hbctl start --profile operations-center
-```
-
-Start the full stack:
+Start the full platform:
 
 ```bash
 hbctl start --all
 ```
 
-What happens:
-- Decrypts secrets
-- Ensures MongoDB is running
-- Bootstraps app user if needed
-- Starts the requested service(s)
-
----
-
-## Stop Services
-
-Stop a specific profile:
+Start a single unit:
 
 ```bash
-hbctl stop --profile logingestion-receiver
-hbctl stop --profile herringbone-logs
-hbctl stop --profile parser-cardset
-hbctl stop --profile parser-enrichment
-hbctl stop --profile parser-extractor
-hbctl stop --profile detectionengine-detector
-hbctl stop --profile detectionengine-matcher
-hbctl stop --profile detectionengine-ruleset
-hbctl stop --profile operations-center
-hbctl stop --profile database
+hbctl start --unit parser
+```
+
+Start a single element:
+
+```bash
+hbctl start --element herringbone-auth
+```
+
+Check status:
+
+```bash
+hbctl status
+```
+
+View logs:
+
+```bash
+hbctl logs --unit parser --follow
 ```
 
 Stop everything:
@@ -205,134 +153,65 @@ Stop everything:
 hbctl stop
 ```
 
-No secrets are decrypted for stop.
-
----
-
-## Restart Services
-
-Restart a specific profile:
+Restart a service:
 
 ```bash
-hbctl restart --profile logingestion-receiver
-hbctl restart --profile herringbone-logs
-hbctl restart --profile parser-cardset
-hbctl restart --profile parser-enrichment
-hbctl restart --profile parser-extractor
-hbctl restart --profile detectionengine-detector
-hbctl restart --profile detectionengine-matcher
-hbctl restart --profile detectionengine-ruleset
-hbctl restart --profile operations-center
-hbctl restart --profile database
-```
-
-Restart everything:
-
-```bash
-hbctl restart
+hbctl restart --element parser-extractor
 ```
 
 ---
 
-## Status
+## Receiver Note
 
-Show status of all running Herringbone containers:
-
-```bash
-hbctl status
-```
-
-Show status for a single profile:
+When starting the log ingestion receiver, a type is required:
 
 ```bash
-hbctl status --profile logingestion-receiver
-hbctl status --profile herringbone-logs
-hbctl status --profile parser-cardset
-```
-
-Output includes:
-
-- Container name
-- Service
-- State
-- Published ports
-
----
-
-## Logs
-
-View logs for a service:
-
-```bash
-hbctl logs logingestion-receiver
-hbctl logs herringbone-logs
-hbctl logs parser-cardset
-```
-
-Follow logs:
-
-```bash
-hbctl logs --follow logingestion-receiver
-```
-
-Tail last N lines:
-
-```bash
-hbctl logs --tail 100 herringbone-logs
+hbctl start --element logingestion-receiver --type UDP
 ```
 
 ---
 
-## Typical Workflow
+## Local Development Notes
+
+### Refreshing images
+
+If you are rebuilding images locally and want to remove stale resources:
 
 ```bash
-# Save credentials once
-hbctl login mongodb \
-  --user hbuser \
-  --password hbpass \
-  --database herringbone \
-  --collection logs \
-  --host mongodb
+docker system prune -f
+```
 
-# Start receiver + Mongo
-hbctl start --profile logingestion-receiver --type UDP
+Then restart:
 
-# Start logs API
-hbctl start --profile herringbone-logs
-
-# Start Operations Center UI
-hbctl start --profile operations-center
-
-# Check status
-hbctl status
-
-# Follow logs
-hbctl logs --follow logingestion-receiver
-
-# Stop everything
+```bash
 hbctl stop
+hbctl start --all
 ```
 
----
+### Resetting MongoDB (local only)
 
-## Notes
-
-- Always run hbctl from the compose directory.
-- Services communicate with Mongo using `MONGO_HOST=mongodb` on the Docker network.
-- Secrets are stored encrypted locally; only `start` decrypts them.
-- Each profile maps to one compose file layered with `compose.mongo.yml`.
-- Use `hbctl profiles --wide` to explore available components and groups.
-
----
-
-## Help
+This **permanently deletes local MongoDB data**:
 
 ```bash
-hbctl help
-hbctl <command> --help
+docker volume rm herringbone_mongo_data
+hbctl start --all
 ```
 
 ---
 
-hbctl provides a clean, modular way to operate a local Herringbone SOC stack with
-GitOps-style composability and strong operational defaults.
+## Documentation
+
+- Quickstart: https://github.com/herringbonedev/Herringbone/wiki/Quickstart
+- hbctl Usage: https://github.com/herringbonedev/Herringbone/wiki/hbctl
+
+---
+
+## Philosophy
+
+hbctl exists to:
+- Make the platform operable, not magical
+- Enforce structure over convenience
+- Keep runtime logic out of services
+- Scale from local development to production-grade orchestration
+
+If something is unclear, it should be fixed in hbctl — not worked around.
