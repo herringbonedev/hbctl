@@ -6,23 +6,6 @@ It is used to discover, start, stop, restart, and inspect Herringbone services l
 
 hbctl is intentionally opinionated and is the **only supported way** to operate Herringbone locally.
 
----
-
-## What hbctl Is (and Is Not)
-
-**hbctl is:**
-- A platform control CLI
-- A Docker Compose orchestrator for Herringbone
-- A secrets-aware runtime launcher
-- Unit / element aware
-
-**hbctl is not:**
-- A wrapper around `docker compose`
-- A generic container manager
-- A Kubernetes tool (yet)
-
----
-
 ## Repository Relationship
 
 hbctl lives in its **own repository** and operates against a **separate Herringbone checkout**.
@@ -36,8 +19,6 @@ Recommended layout:
 ```
 
 hbctl must be **executed from the Herringbone repository root**, where `compose.*.yml` files live.
-
----
 
 ## Core Concepts
 
@@ -63,8 +44,6 @@ Examples:
 
 hbctl enforces this model consistently across all commands.
 
----
-
 ## Building hbctl
 
 ```bash
@@ -82,8 +61,6 @@ Verify:
 ```bash
 hbctl version
 ```
-
----
 
 ## Encrypted Secrets
 
@@ -105,8 +82,6 @@ Supported backends:
 - `servicekey`
 
 Secrets are decrypted only at runtime.
-
----
 
 ## Common Commands
 
@@ -159,8 +134,6 @@ Restart a service:
 hbctl restart --element parser-extractor
 ```
 
----
-
 ## Receiver Note
 
 When starting the log ingestion receiver, a type is required:
@@ -168,8 +141,6 @@ When starting the log ingestion receiver, a type is required:
 ```bash
 hbctl start --element logingestion-receiver --type UDP
 ```
-
----
 
 ## Local Development Notes
 
@@ -197,14 +168,10 @@ docker volume rm herringbone_mongo_data
 hbctl start --all
 ```
 
----
-
 ## Documentation
 
 - Quickstart: https://github.com/herringbonedev/Herringbone/wiki/Quickstart
 - hbctl Usage: https://github.com/herringbonedev/Herringbone/wiki/hbctl
-
----
 
 ## Philosophy
 
