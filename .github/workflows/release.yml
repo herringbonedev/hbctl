@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Version (e.g. 1.0.0, alpha-0.1.0, beta-2.1.2)"
+        description: "Version"
         required: true
         type: string
 
@@ -12,10 +12,8 @@ permissions:
   contents: write
 
 jobs:
-  release:
+  build:
     runs-on: ubuntu-latest
-    environment:
-      name: cli-release
 
     strategy:
       matrix:
@@ -32,11 +30,9 @@ jobs:
         with:
           go-version: "1.22"
 
-      - name: Set version
-        run: echo "VERSION=${{ inputs.version }}" >> $GITHUB_ENV
-
       - name: Build
         run: |
+          VERSION=${{ inputs.version }}
           mkdir -p dist
           BINARY_NAME=hbctl
           OUTPUT=${BINARY_NAME}_${VERSION}_${{ matrix.goos }}_${{ matrix.goarch }}
@@ -47,18 +43,36 @@ jobs:
           go build -ldflags="-s -w -X main.version=${VERSION}" \
           -o dist/${OUTPUT}
 
-      - name: Checksums
+      - uses: actions/upload-artifact@v4
+        with:
+          name: build-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: dist/*
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: cli-release
+
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+
+      - name: Flatten artifacts
         run: |
-          cd dist
+          mkdir -p final
+          find dist -type f -exec mv {} final/ \;
+          cd final
           sha256sum * > checksums.txt
 
-      - name: Create tag and release
+      - name: Create release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ env.VERSION }}
-          name: ${{ env.VERSION }}
+          tag_name: ${{ inputs.version }}
+          name: ${{ inputs.version }}
           draft: false
-          prerelease: ${{ startsWith(env.VERSION, 'alpha-') || startsWith(env.VERSION, 'beta-') }}
-          files: dist/*
+          prerelease: ${{ startsWith(inputs.version, 'alpha-') || startsWith(inputs.version, 'beta-') }}
+          files: final/*
         env:
           GITHUB_TOKEN: ${{ secrets.HERRINGBONE_ACTIONS_BOT }}
