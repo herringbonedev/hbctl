@@ -2,7 +2,7 @@ package cmd
 
 import "fmt"
 
-var Version = "0.0.1-a"
+var Version = "alpha-0.1.0"
 
 func init() {
 	Register("version", versionCmd)
