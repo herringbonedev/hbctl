@@ -86,6 +86,10 @@ func Start(opts StartOptions) error {
 	if opts.All {
 		fmt.Println("[hbctl] Starting full Herringbone stack...")
 
+		if err := startElement(opts.Project, env, "herringbone-proxy"); err != nil {
+        	return err
+    	}
+
 		if err := ensureDatabase(opts.Project, sec); err != nil {
 			return err
 		}
@@ -94,8 +98,8 @@ func Start(opts StartOptions) error {
 			return err
 		}
 
-		if err := waitHTTP("http://localhost:7001/health", 45*time.Second); err != nil {
-			_ = waitHTTP("http://localhost:7001/docs", 5*time.Second)
+		if err := waitHTTP("http://localhost:8080/health", 45*time.Second); err != nil {
+			_ = waitHTTP("http://localhost:8080/docs", 5*time.Second)
 		}
 
 		if !opts.NoTokenCreate {
@@ -159,7 +163,7 @@ func Start(opts StartOptions) error {
 }
 
 func bootstrapServices(secretsDir string) error {
-	authURL := "http://localhost:7001"
+	authURL := "http://localhost:8080"
 
 	adminToken, err := loadAdminToken(secretsDir)
 	if err != nil {

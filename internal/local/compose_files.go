@@ -16,6 +16,7 @@ const (
 	ComposeIncidentOrchestrator = "compose.incidents.orchestrator.yml"
 	ComposeSearch               = "compose.herringbone.search.yml"
 	ComposeAuth					= "compose.herringbone.auth.yml"
+	ComposeProxy				= "compose.proxy.yml"
 )
 
 func ComposeFilesForElement(element string) []string {
@@ -50,6 +51,8 @@ func ComposeFilesForElement(element string) []string {
 		files = append(files, "-f", ComposeSearch)
 	case "herringbone-auth":
 		files = append(files, "-f", ComposeAuth)
+	case "herringbone-proxy":
+		files = append(files, "-f", ComposeProxy)
 	}
 
 	return files

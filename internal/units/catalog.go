@@ -31,6 +31,7 @@ var AllElements = []ElementInfo{
 
 var UnitElements = map[string][]string{
 	"database": 		 {"mongodb"},
+	"proxy": 		 	 {"proxy"},
 	"receiver":  		 {"logingestion-receiver"},
 	"logs":      		 {"herringbone-logs"},
 	"search":    		 {"herringbone-search"},
@@ -44,14 +45,15 @@ var UnitElements = map[string][]string{
 
 
 var ServiceUnits = map[string][]string{
-	"logs":      		 {"herringbone-logs", "herringbone-search", "mongodb"},
-	"search":    		 {"herringbone-search", "mongodb"},
-	"auth":    		 {"herringbone-auth", "mongodb"},
-	"receiver":  		 {"logingestion-receiver", "mongodb"},
-	"parser":    		 {"parser-cardset", "parser-enrichment", "parser-extractor"},
-	"detection": 		 {"detectionengine-detector", "detectionengine-matcher", "detectionengine-ruleset"},
-	"incidents": 		 {"incidents-incidentset", "incidents-correlator", "incidents-orchestrator", "mongodb"},
-	"operations-center": {"operations-center"},
+	"logs":      		 {"herringbone-logs", "herringbone-search", "mongodb", "proxy"},
+	"search":    		 {"herringbone-search", "mongodb", "proxy"},
+	"auth":    		 {"herringbone-auth", "mongodb", "proxy"},
+	"receiver":  		 {"logingestion-receiver", "mongodb", "proxy"},
+	"parser":    		 {"parser-cardset", "parser-enrichment", "parser-extractor", "mongodb", "proxy"},
+	"detection": 		 {"detectionengine-detector", "detectionengine-matcher", "detectionengine-ruleset", "mongodb", "proxy"},
+	"incidents": 		 {"incidents-incidentset", "incidents-correlator", "incidents-orchestrator", "mongodb", "proxy"},
+	"operations-center": {"operations-center", "proxy"},
 	"database":  		 {"mongodb"},
+	"proxy": 		 	 {"proxy"},
 }
 
