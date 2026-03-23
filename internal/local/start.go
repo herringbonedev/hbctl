@@ -22,12 +22,16 @@ import (
 )
 
 type StartOptions struct {
-    Project        string
-    Element        string
-    Unit           string
-    All            bool
-    RecvType       string
-    NoTokenCreate  bool
+	Project       string
+	Element       string
+	Unit          string
+	All           bool
+	RecvType      string
+	NoTokenCreate bool
+}
+
+type requestOptions struct {
+	OrgID string
 }
 
 func secretsDirForProject() (string, error) {
@@ -87,8 +91,8 @@ func Start(opts StartOptions) error {
 		fmt.Println("[hbctl] Starting full Herringbone stack...")
 
 		if err := startElement(opts.Project, env, "herringbone-proxy"); err != nil {
-        	return err
-    	}
+			return err
+		}
 
 		if err := ensureDatabase(opts.Project, sec); err != nil {
 			return err
@@ -103,7 +107,6 @@ func Start(opts StartOptions) error {
 		}
 
 		if !opts.NoTokenCreate {
-
 			if err := ensureAdminToken(secretsDir, jwtSecret.JWTSecret); err != nil {
 				return err
 			}
@@ -111,7 +114,6 @@ func Start(opts StartOptions) error {
 			if err := bootstrapServices(secretsDir); err != nil {
 				return err
 			}
-
 		} else {
 			fmt.Println("[hbctl] Skipping service token bootstrap (--no-token-create)")
 		}
@@ -132,7 +134,6 @@ func Start(opts StartOptions) error {
 	}
 
 	if opts.Unit != "" {
-
 		elements := units.UnitElements[opts.Unit]
 		if len(elements) == 0 {
 			return fmt.Errorf("unknown unit: %s", opts.Unit)
@@ -172,6 +173,21 @@ func bootstrapServices(secretsDir string) error {
 
 	client := &http.Client{Timeout: 10 * time.Second}
 
+	orgID, err := maybeResolvePlatformOrgID(client, authURL, adminToken)
+	if err != nil {
+		return fmt.Errorf("resolve platform org failed: %w", err)
+	}
+
+	if orgID != "" {
+		fmt.Printf("[hbctl] Using platform org context: %s\n", orgID)
+	} else {
+		fmt.Println("[hbctl] Platform org context not available yet, continuing without org header")
+	}
+
+	reqOpts := requestOptions{
+		OrgID: orgID,
+	}
+
 	for _, svc := range BootstrapServices {
 		svcID := fmt.Sprintf("%s-%s", svc.ID, uuidString())
 
@@ -180,8 +196,8 @@ func bootstrapServices(secretsDir string) error {
 			"service_name": svc.Name,
 			"scopes":       svc.Scopes,
 		}
-		
-		if err := postJSON(client, authURL+"/herringbone/auth/services/register", adminToken, createBody, nil); err != nil {
+
+		if err := postJSON(client, authURL+"/herringbone/auth/services/register", adminToken, createBody, nil, reqOpts); err != nil {
 			return fmt.Errorf("create service %s failed: %w", svc.Name, err)
 		}
 
@@ -192,7 +208,7 @@ func bootstrapServices(secretsDir string) error {
 		if err := postJSON(client, authURL+"/herringbone/auth/service-token", adminToken, map[string]any{
 			"service": svc.Name,
 			"scopes":  svc.Scopes,
-		}, &tokenResp); err != nil {
+		}, &tokenResp, reqOpts); err != nil {
 			return fmt.Errorf("token mint failed for %s: %w", svc.Name, err)
 		}
 
@@ -239,8 +255,8 @@ func mintAdminJWT(secret string) (string, error) {
 	payload := map[string]any{
 		"sub":   "hbctl-bootstrap",
 		"email": "hbctl@local",
-		"role":  "admin",
 		"typ":   "user",
+		"scope": []string{"*"},
 		"iat":   now.Unix(),
 		"exp":   now.Add(24 * time.Hour).Unix(),
 	}
@@ -309,7 +325,7 @@ func prepareAuthSecrets(secretsDir, jwtSecret, svcPriv, svcPub string) error {
 			return err
 		}
 	}
-	
+
 	bootstrapPath := filepath.Join(secretsDir, "bootstrap_token")
 
 	if _, err := os.Stat(bootstrapPath); os.IsNotExist(err) {
@@ -395,7 +411,7 @@ func ensureDatabase(project string, sec *secrets.MongoSecret) error {
 	return nil
 }
 
-func postJSON(client *http.Client, url, token string, body any, out any) error {
+func postJSON(client *http.Client, url, token string, body any, out any, opts requestOptions) error {
 	b, err := json.Marshal(body)
 	if err != nil {
 		return err
@@ -405,8 +421,13 @@ func postJSON(client *http.Client, url, token string, body any, out any) error {
 	if err != nil {
 		return err
 	}
+
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Content-Type", "application/json")
+
+	if opts.OrgID != "" {
+		req.Header.Set("X-Herringbone-Org", opts.OrgID)
+	}
 
 	resp, err := client.Do(req)
 	if err != nil {
@@ -425,6 +446,74 @@ func postJSON(client *http.Client, url, token string, body any, out any) error {
 
 	_, _ = io.Copy(io.Discard, resp.Body)
 	return nil
+}
+
+func getJSON(client *http.Client, url, token string, out any, opts requestOptions) error {
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return err
+	}
+
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	if opts.OrgID != "" {
+		req.Header.Set("X-Herringbone-Org", opts.OrgID)
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 300 {
+		d, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("http %d: %s", resp.StatusCode, string(d))
+	}
+
+	return json.NewDecoder(resp.Body).Decode(out)
+}
+
+func maybeResolvePlatformOrgID(client *http.Client, authURL, token string) (string, error) {
+	type enterpriseMeResponse struct {
+		Contexts []struct {
+			ContextID string `json:"context_id"`
+			Slug      string `json:"slug"`
+		} `json:"contexts"`
+	}
+
+	var resp enterpriseMeResponse
+
+	err := getJSON(client, authURL+"/herringbone/auth/enterprise/me", token, &resp, requestOptions{})
+	if err != nil {
+		msg := err.Error()
+
+		if strings.Contains(msg, "404") {
+			return "", nil
+		}
+		if strings.Contains(msg, "X-Herringbone-Org header required") {
+			return "", nil
+		}
+		if strings.Contains(msg, "default context not allowed") {
+			return "", nil
+		}
+		if strings.Contains(msg, "invalid user id") {
+			return "", nil
+		}
+		if strings.Contains(msg, "user identity required") {
+			return "", nil
+		}
+
+		return "", err
+	}
+
+	for _, ctx := range resp.Contexts {
+		if ctx.Slug == "platform" && ctx.ContextID != "" {
+			return ctx.ContextID, nil
+		}
+	}
+
+	return "", nil
 }
 
 func loadAdminToken(secretsDir string) (string, error) {
