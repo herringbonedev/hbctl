@@ -123,7 +123,7 @@ func Start(opts StartOptions) error {
 				continue
 			}
 			if e.Name == "logingestion-receiver" {
-				env["RECEIVER_TYPE"] = "UDP"
+				continue
 			}
 			if err := startElement(opts.Project, env, e.Name); err != nil {
 				return err

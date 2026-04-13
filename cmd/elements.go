@@ -2,83 +2,84 @@ package cmd
 
 import (
 	"encoding/json"
-	"flag"
 	"fmt"
-	"os"
 	"sort"
 	"strings"
 
 	"github.com/herringbonedev/hbctl/internal/units"
+	"github.com/spf13/cobra"
 )
 
-type elementInfo = units.ElementInfo
+func elementsCommand() *cobra.Command {
+	var asJSON bool
+	var namesOnly bool
+	var filter string
+	var wide bool
 
-func init() {
-	Register("elements", elementsCmd)
-}
-
-func elementsCmd(args []string) {
-	fs := flag.NewFlagSet("elements", flag.ExitOnError)
-	asJSON := fs.Bool("json", false, "Output elements as JSON")
-	namesOnly := fs.Bool("names", false, "Output only element names")
-	filter := fs.String("filter", "", "Filter elements by name, description, or unit")
-	wide := fs.Bool("wide", false, "Show wide table with units")
-	_ = fs.Parse(args)
-
-	var out []elementInfo
-	if *filter == "" {
-		out = units.AllElements
-	} else {
-		f := strings.ToLower(*filter)
-		for _, e := range units.AllElements {
-			if strings.Contains(strings.ToLower(e.Name), f) ||
-				strings.Contains(strings.ToLower(e.Description), f) ||
-				strings.Contains(strings.ToLower(e.Unit), f) {
-				out = append(out, e)
+	cmd := &cobra.Command{
+		Use:   "elements",
+		Short: "List available elements",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			var out []units.ElementInfo
+			if strings.TrimSpace(filter) == "" {
+				out = append(out, units.AllElements...)
+			} else {
+				needle := strings.ToLower(strings.TrimSpace(filter))
+				for _, element := range units.AllElements {
+					if strings.Contains(strings.ToLower(element.Name), needle) ||
+						strings.Contains(strings.ToLower(element.Description), needle) ||
+						strings.Contains(strings.ToLower(element.Unit), needle) {
+						out = append(out, element)
+					}
+				}
 			}
-		}
+
+			if asJSON {
+				enc := json.NewEncoder(cmd.OutOrStdout())
+				enc.SetIndent("", "  ")
+				return enc.Encode(out)
+			}
+
+			if namesOnly {
+				for _, element := range out {
+					fmt.Fprintln(cmd.OutOrStdout(), element.Name)
+				}
+				return nil
+			}
+
+			if wide {
+				fmt.Fprintf(cmd.OutOrStdout(), "%-3s %-28s %-18s %s\n", "#", "NAME", "UNIT", "DESCRIPTION")
+				for index, element := range out {
+					fmt.Fprintf(cmd.OutOrStdout(), "%-3d %-28s %-18s %s\n", index+1, element.Name, element.Unit, element.Description)
+				}
+				return nil
+			}
+
+			grouped := map[string][]units.ElementInfo{}
+			for _, element := range out {
+				grouped[element.Unit] = append(grouped[element.Unit], element)
+			}
+
+			var unitNames []string
+			for unitName := range grouped {
+				unitNames = append(unitNames, unitName)
+			}
+			sort.Strings(unitNames)
+
+			for _, unitName := range unitNames {
+				fmt.Fprintf(cmd.OutOrStdout(), "[%s]\n", unitName)
+				for _, element := range grouped[unitName] {
+					fmt.Fprintf(cmd.OutOrStdout(), "  %-28s %s\n", element.Name, element.Description)
+				}
+				fmt.Fprintln(cmd.OutOrStdout())
+			}
+			return nil
+		},
 	}
 
-	if *asJSON {
-		enc := json.NewEncoder(os.Stdout)
-		enc.SetIndent("", "  ")
-		_ = enc.Encode(out)
-		return
-	}
-
-	if *namesOnly {
-		for _, e := range out {
-			fmt.Println(e.Name)
-		}
-		return
-	}
-
-	if *wide {
-		fmt.Printf("%-3s %-26s %-12s %s\n", "#", "NAME", "UNIT", "DESCRIPTION")
-		for i, e := range out {
-			fmt.Printf("%-3d %-26s %-12s %s\n", i+1, e.Name, e.Unit, e.Description)
-		}
-		return
-	}
-
-	grouped := map[string][]elementInfo{}
-	for _, e := range out {
-		grouped[e.Unit] = append(grouped[e.Unit], e)
-	}
-
-	var units []string
-	for u := range grouped {
-		units = append(units, u)
-	}
-	sort.Strings(units)
-
-	fmt.Println("Elements grouped by unit:")
-
-	for _, u := range units {
-		fmt.Printf("\n[%s]\n", strings.ToUpper(u[:1])+u[1:])
-		for _, e := range grouped[u] {
-			fmt.Printf("  %-26s %s\n", e.Name, e.Description)
-		}
-	}
+	cmd.Flags().BoolVar(&asJSON, "json", false, "Output as JSON")
+	cmd.Flags().BoolVar(&namesOnly, "names", false, "Output only names")
+	cmd.Flags().StringVar(&filter, "filter", "", "Filter by name, description, or unit")
+	cmd.Flags().BoolVar(&wide, "wide", false, "Show a wide table")
+	return cmd
 }
-

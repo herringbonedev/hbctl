@@ -15,8 +15,8 @@ const (
 	ComposeIncidentCorrelator   = "compose.incidents.correlator.yml"
 	ComposeIncidentOrchestrator = "compose.incidents.orchestrator.yml"
 	ComposeSearch               = "compose.herringbone.search.yml"
-	ComposeAuth					= "compose.herringbone.auth.yml"
-	ComposeProxy				= "compose.proxy.yml"
+	ComposeAuth                 = "compose.herringbone.auth.yml"
+	ComposeProxy                = "compose.proxy.yml"
 )
 
 func ComposeFilesForElement(element string) []string {

@@ -1,39 +1,51 @@
 package cmd
 
 import (
-    "flag"
-    "fmt"
-    "os"
+	"fmt"
+	"strings"
 
-    "github.com/herringbonedev/hbctl/internal/local"
+	"github.com/herringbonedev/hbctl/internal/local"
+	"github.com/spf13/cobra"
 )
 
-func init() {
-    Register("start", startCmd)
-}
+func startCommand() *cobra.Command {
+	var element string
+	var unit string
+	var all bool
+	var receiverType string
+	var noTokenCreate bool
 
-func startCmd(args []string) {
-    fs := flag.NewFlagSet("start", flag.ExitOnError)
+	cmd := &cobra.Command{
+		Use:   "start",
+		Short: "Start an element, a unit, or the full stack",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if !all && strings.TrimSpace(element) == "" && strings.TrimSpace(unit) == "" {
+				return fmt.Errorf("specify --element, --unit, or --all")
+			}
+			
+			if strings.TrimSpace(receiverType) != "" {
+				normalized, err := normalizeReceiverType(receiverType)
+				if err != nil {
+					return err
+				}
+				receiverType = strings.ToUpper(normalized)
+			}
 
-    element := fs.String("element", "", "Element (service) to start")
-    unit := fs.String("unit", "", "Unit (subsystem) to start")
-    all := fs.Bool("all", false, "Start full Herringbone stack")
-    recvType := fs.String("type", "", "Receiver type (UDP, TCP, HTTP)")
-    noToken := fs.Bool("no-token-create", false, "Do not create admin/service tokens")
+			return local.Start(local.StartOptions{
+				Project:       projectName,
+				Element:       strings.TrimSpace(element),
+				Unit:          strings.TrimSpace(unit),
+				All:           all,
+				RecvType:      receiverType,
+				NoTokenCreate: noTokenCreate,
+			})
+		},
+	}
 
-    fs.Parse(args)
-
-    opts := local.StartOptions{
-        Project:       composeProject,
-        Element:       *element,
-        Unit:          *unit,
-        All:           *all,
-        RecvType:      *recvType,
-        NoTokenCreate: *noToken,
-    }
-
-    if err := local.Start(opts); err != nil {
-        fmt.Fprintln(os.Stderr, err)
-        os.Exit(1)
-    }
+	cmd.Flags().StringVar(&element, "element", "", "Element to start")
+	cmd.Flags().StringVar(&unit, "unit", "", "Unit to start")
+	cmd.Flags().BoolVar(&all, "all", false, "Start the full stack")
+	cmd.Flags().StringVar(&receiverType, "type", "", "Receiver type for logingestion-receiver: http, tcp, udp, or remote")
+	cmd.Flags().BoolVar(&noTokenCreate, "no-token-create", false, "Skip bootstrap token and service token creation")
+	return cmd
 }

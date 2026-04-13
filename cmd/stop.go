@@ -1,24 +1,28 @@
 package cmd
 
 import (
-	"flag"
-	"fmt"
-	"os"
+	"strings"
 
 	"github.com/herringbonedev/hbctl/internal/local"
+	"github.com/spf13/cobra"
 )
 
-func init() {
-	Register("stop", stopCmd)
-}
+func stopCommand() *cobra.Command {
+	var element string
+	var all bool
 
-func stopCmd(args []string) {
-	fs := flag.NewFlagSet("stop", flag.ExitOnError)
-	element := fs.String("element", "", "Element (service) to stop (e.g. mongodb, parser-extractor, herringbone-search)")
-	fs.Parse(args)
-
-	if err := local.Stop(local.StopOptions{Project: composeProject, Element: *element}); err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
+	cmd := &cobra.Command{
+		Use:   "stop",
+		Short: "Stop an element or the full stack",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if all {
+				element = ""
+			}
+			return local.Stop(local.StopOptions{Project: projectName, Element: strings.TrimSpace(element)})
+		},
 	}
+
+	cmd.Flags().StringVar(&element, "element", "", "Element to stop")
+	cmd.Flags().BoolVar(&all, "all", false, "Stop the full stack")
+	return cmd
 }

@@ -1,13 +1,19 @@
 package cmd
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/spf13/cobra"
+)
 
 var Version = "alpha-0.4.0"
 
-func init() {
-	Register("version", versionCmd)
-}
-
-func versionCmd(args []string) {
-	fmt.Println("hbctl version", Version)
+func versionCommand() *cobra.Command {
+	return &cobra.Command{
+		Use:   "version",
+		Short: "Show hbctl version",
+		Run: func(cmd *cobra.Command, args []string) {
+			fmt.Fprintf(cmd.OutOrStdout(), "hbctl version %s\n", Version)
+		},
+	}
 }

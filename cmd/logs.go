@@ -1,36 +1,31 @@
 package cmd
 
 import (
-	"flag"
-	"fmt"
-	"os"
-
 	"github.com/herringbonedev/hbctl/internal/local"
+	"github.com/spf13/cobra"
 )
 
-func init() {
-	Register("logs", logsCmd)
-}
+func logsCommand() *cobra.Command {
+	var unit string
+	var follow bool
+	var tail int
 
-func logsCmd(args []string) {
-	fs := flag.NewFlagSet("logs", flag.ExitOnError)
-
-	unit := fs.String("unit", "", "Unit (subsystem) to show logs for (e.g. parser, detection, incidents)")
-	follow := fs.Bool("follow", false, "Follow log output")
-	tail := fs.Int("tail", 0, "Number of lines to show from the end of logs")
-
-	fs.Parse(args)
-
-	elements := fs.Args()
-
-	if err := local.Logs(local.LogsOptions{
-		Project:  composeProject,
-		Unit:     *unit,
-		Follow:   *follow,
-		Tail:     *tail,
-		Elements: elements,
-	}); err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
+	cmd := &cobra.Command{
+		Use:   "logs [element ...]",
+		Short: "Show logs for elements or a unit",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return local.Logs(local.LogsOptions{
+				Project:  projectName,
+				Unit:     unit,
+				Follow:   follow,
+				Tail:     tail,
+				Elements: args,
+			})
+		},
 	}
+
+	cmd.Flags().StringVar(&unit, "unit", "", "Unit to show logs for")
+	cmd.Flags().BoolVarP(&follow, "follow", "f", false, "Follow log output")
+	cmd.Flags().IntVar(&tail, "tail", 0, "Number of lines from the end of logs")
+	return cmd
 }

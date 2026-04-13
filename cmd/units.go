@@ -1,29 +1,40 @@
 package cmd
 
 import (
-	"flag"
+	"encoding/json"
 	"fmt"
 	"sort"
 
 	"github.com/herringbonedev/hbctl/internal/units"
+	"github.com/spf13/cobra"
 )
 
-func init() {
-	Register("units", unitsCmd)
-}
+func unitsCommand() *cobra.Command {
+	var asJSON bool
 
-func unitsCmd(args []string) {
-	fs := flag.NewFlagSet("units", flag.ExitOnError)
-	fs.Parse(args)
+	cmd := &cobra.Command{
+		Use:   "units",
+		Short: "List available units",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			var names []string
+			for name := range units.ServiceUnits {
+				names = append(names, name)
+			}
+			sort.Strings(names)
 
-	var names []string
-	for u := range units.ServiceUnits {
-		names = append(names, u)
+			if asJSON {
+				enc := json.NewEncoder(cmd.OutOrStdout())
+				enc.SetIndent("", "  ")
+				return enc.Encode(names)
+			}
+
+			for _, name := range names {
+				fmt.Fprintln(cmd.OutOrStdout(), name)
+			}
+			return nil
+		},
 	}
 
-	sort.Strings(names)
-
-	for _, u := range names {
-		fmt.Println(u)
-	}
+	cmd.Flags().BoolVar(&asJSON, "json", false, "Output as JSON")
+	return cmd
 }

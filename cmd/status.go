@@ -1,29 +1,27 @@
 package cmd
 
 import (
-	"flag"
-	"fmt"
-	"os"
-
 	"github.com/herringbonedev/hbctl/internal/local"
+	"github.com/spf13/cobra"
 )
 
-func init() {
-	Register("status", statusCmd)
-}
+func statusCommand() *cobra.Command {
+	var unit string
+	var asJSON bool
 
-func statusCmd(args []string) {
-	fs := flag.NewFlagSet("status", flag.ExitOnError)
-	unit := fs.String("unit", "", "Unit (subsystem) to show status for (e.g. parser, detection, incidents)")
-	asJSON := fs.Bool("json", false, "Output status as JSON")
-	fs.Parse(args)
-
-	if err := local.Status(local.StatusOptions{
-		Project: composeProject,
-		Unit:    *unit,
-		JSON:    *asJSON,
-	}); err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
+	cmd := &cobra.Command{
+		Use:   "status",
+		Short: "Show status for the running stack",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return local.Status(local.StatusOptions{
+				Project: projectName,
+				Unit:    unit,
+				JSON:    asJSON,
+			})
+		},
 	}
+
+	cmd.Flags().StringVar(&unit, "unit", "", "Unit to filter by")
+	cmd.Flags().BoolVar(&asJSON, "json", false, "Output as JSON")
+	return cmd
 }

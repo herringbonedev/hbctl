@@ -15,71 +15,71 @@ func serviceUUID(name string) string {
 }
 
 var BootstrapServices = []ServiceIdentity{
-    {
-        Name:   "parser-enrichment",
-        ID:     serviceUUID("parser-enrichment"),
-        Scopes: []string{
-            "extractor:call",
-            "parser:cards:read",
-        },
-    },
-    {
-        Name:   "parser-extractor",
-        ID:     serviceUUID("parser-extractor"),
-        Scopes: []string{
-            "parser:extract",
-        },
-    },
-    {
-        Name:   "parser-cardset",
-        ID:     serviceUUID("parser-cardset"),
-        Scopes: []string{
-            "parser:cards:read",
-            "parser:cards:write",
-        },
-    },
 	{
-        Name:   "incidents-incidentset",
-        ID:     serviceUUID("incidents-incidentset"),
-        Scopes: []string{
+		Name: "parser-enrichment",
+		ID:   serviceUUID("parser-enrichment"),
+		Scopes: []string{
+			"extractor:call",
+			"parser:cards:read",
+		},
+	},
+	{
+		Name: "parser-extractor",
+		ID:   serviceUUID("parser-extractor"),
+		Scopes: []string{
+			"parser:extract",
+		},
+	},
+	{
+		Name: "parser-cardset",
+		ID:   serviceUUID("parser-cardset"),
+		Scopes: []string{
+			"parser:cards:read",
+			"parser:cards:write",
+		},
+	},
+	{
+		Name: "incidents-incidentset",
+		ID:   serviceUUID("incidents-incidentset"),
+		Scopes: []string{
 			"incidents:write",
-        },
-    },
-    {
-        Name:   "incidents-orchestrator",
-        ID:     serviceUUID("incidents-orchestrator"),
-        Scopes: []string{
-            "incidents:write",
-			"incidents:correlate",
-        },
-    },
-    {
-        Name:   "incidents-correlator",
-        ID:     serviceUUID("incidents-correlator"),
-        Scopes: []string{
-			"events:read",
-        },
-    },
+		},
+	},
 	{
-        Name:   "detectionengine-detector",
-        ID:     serviceUUID("detectionengine-detector"),
-        Scopes: []string{
+		Name: "incidents-orchestrator",
+		ID:   serviceUUID("incidents-orchestrator"),
+		Scopes: []string{
+			"incidents:write",
+			"incidents:correlate",
+		},
+	},
+	{
+		Name: "incidents-correlator",
+		ID:   serviceUUID("incidents-correlator"),
+		Scopes: []string{
+			"events:read",
+		},
+	},
+	{
+		Name: "detectionengine-detector",
+		ID:   serviceUUID("detectionengine-detector"),
+		Scopes: []string{
 			"incidents:orchestrate",
 			"detectionengine:run",
-        },
-    },
+		},
+	},
 	{
-        Name:   "detectionengine-matcher",
-        ID:     serviceUUID("detectionengine-matcher"),
-        Scopes: []string{
+		Name: "detectionengine-matcher",
+		ID:   serviceUUID("detectionengine-matcher"),
+		Scopes: []string{
 			"detectionengine:run",
-        },
-    },
-		{
-        Name:   "detectionengine-ruleset",
-        ID:     serviceUUID("detectionengine-ruleset"),
-        Scopes: []string{
+		},
+	},
+	{
+		Name: "detectionengine-ruleset",
+		ID:   serviceUUID("detectionengine-ruleset"),
+		Scopes: []string{
 			"rules:read",
-        },
-    },
+		},
+	},
 }

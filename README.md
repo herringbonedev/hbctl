@@ -182,3 +182,62 @@ hbctl exists to:
 - Scale from local development to production-grade orchestration
 
 If something is unclear, it should be fixed in hbctl — not worked around.
+
+
+## Dedicated Receiver Control Plane
+
+hbctl can run multiple dedicated receiver instances at the same time.
+Each receiver gets its own Docker Compose project name based on type and host port.
+
+Start a local receiver with an auto-assigned port:
+
+```bash
+hbctl receiver start --type udp --mode local
+```
+
+Start a local receiver on a fixed port:
+
+```bash
+hbctl receiver start --type tcp --mode local --port 7004
+```
+
+Start a forward receiver with an existing key already in hand:
+
+```bash
+hbctl receiver start --type udp --mode forward --port 9050   --forward-route 10.0.0.25:7004   --ingestion-key-file ./ingestion.key
+```
+
+You may also pass the existing key inline:
+
+```bash
+hbctl receiver start --type udp --mode forward --port 9050   --forward-route 10.0.0.25:7004   --ingestion-key hb_ingest_existing_value
+```
+
+List dedicated receivers:
+
+```bash
+hbctl receiver list
+```
+
+Show logs for one receiver:
+
+```bash
+hbctl receiver logs --type udp --port 9050 -f
+```
+
+Restart one receiver gracefully:
+
+```bash
+hbctl receiver restart --type udp --port 9050
+```
+
+Stop one receiver:
+
+```bash
+hbctl receiver stop --type udp --port 9050
+```
+
+Notes:
+- hbctl does not mint ingestion keys for receiver forwarding. You supply the existing key value.
+- `receiver stop`, `receiver restart`, and `receiver logs` resolve the running container first, then reuse its actual runtime environment so multiple receivers and custom ports remain manageable.
+- When `--port` is omitted, hbctl allocates the first free port in the 9000-9999 range for the selected receiver protocol.

@@ -1,24 +1,28 @@
 package cmd
 
 import (
-	"flag"
-	"fmt"
-	"os"
+	"strings"
 
 	"github.com/herringbonedev/hbctl/internal/local"
+	"github.com/spf13/cobra"
 )
 
-func init() {
-	Register("restart", restartCmd)
-}
+func restartCommand() *cobra.Command {
+	var element string
+	var all bool
 
-func restartCmd(args []string) {
-	fs := flag.NewFlagSet("restart", flag.ExitOnError)
-	element := fs.String("element", "", "Element (service) to restart (e.g. parser-extractor, herringbone-search)")
-	fs.Parse(args)
-
-	if err := local.Restart(local.RestartOptions{Project: composeProject, Element: *element}); err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
+	cmd := &cobra.Command{
+		Use:   "restart",
+		Short: "Restart an element or the full stack",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if all {
+				element = ""
+			}
+			return local.Restart(local.RestartOptions{Project: projectName, Element: strings.TrimSpace(element)})
+		},
 	}
+
+	cmd.Flags().StringVar(&element, "element", "", "Element to restart")
+	cmd.Flags().BoolVar(&all, "all", false, "Restart the full stack")
+	return cmd
 }
