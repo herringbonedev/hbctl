@@ -173,21 +173,6 @@ func bootstrapServices(secretsDir string) error {
 
 	client := &http.Client{Timeout: 10 * time.Second}
 
-	orgID, err := maybeResolvePlatformOrgID(client, authURL, adminToken)
-	if err != nil {
-		return fmt.Errorf("resolve platform org failed: %w", err)
-	}
-
-	if orgID != "" {
-		fmt.Printf("[hbctl] Using platform org context: %s\n", orgID)
-	} else {
-		fmt.Println("[hbctl] Platform org context not available yet, continuing without org header")
-	}
-
-	reqOpts := requestOptions{
-		OrgID: orgID,
-	}
-
 	for _, svc := range BootstrapServices {
 		svcID := fmt.Sprintf("%s-%s", svc.ID, uuidString())
 
@@ -197,19 +182,33 @@ func bootstrapServices(secretsDir string) error {
 			"scopes":       svc.Scopes,
 		}
 
-		if err := postJSON(client, authURL+"/herringbone/auth/services/register", adminToken, createBody, nil, reqOpts); err != nil {
-			return fmt.Errorf("create service %s failed: %w", svc.Name, err)
+		if err := postJSON(
+			client,
+			authURL+"/herringbone/auth/services/internal/register",
+			adminToken,
+			createBody,
+			nil,
+			requestOptions{},
+		); err != nil {
+			return fmt.Errorf("create internal service %s failed: %w", svc.Name, err)
 		}
 
 		tokenResp := struct {
 			AccessToken string `json:"access_token"`
 		}{}
 
-		if err := postJSON(client, authURL+"/herringbone/auth/service-token", adminToken, map[string]any{
-			"service": svc.Name,
-			"scopes":  svc.Scopes,
-		}, &tokenResp, reqOpts); err != nil {
-			return fmt.Errorf("token mint failed for %s: %w", svc.Name, err)
+		if err := postJSON(
+			client,
+			authURL+"/herringbone/auth/services/internal/token",
+			adminToken,
+			map[string]any{
+				"service": svc.Name,
+				"scopes":  svc.Scopes,
+			},
+			&tokenResp,
+			requestOptions{},
+		); err != nil {
+			return fmt.Errorf("internal token mint failed for %s: %w", svc.Name, err)
 		}
 
 		filename := strings.ReplaceAll(svc.Name, "-", "_") + "_service_token"
