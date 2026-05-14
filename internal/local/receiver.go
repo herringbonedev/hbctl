@@ -142,8 +142,13 @@ func StopReceiver(opts ReceiverStopOptions) error {
 		return err
 	}
 
+	containerPort := instance.ContainerPort
+	if containerPort <= 0 {
+		containerPort = blankInt(env["CONTAINER_PORT"], 7004)
+	}
+
 	env["HOST_PORT"] = strconv.Itoa(instance.HostPort)
-	env["CONTAINER_PORT"] = strconv.Itoa(instance.ContainerPort)
+	env["CONTAINER_PORT"] = strconv.Itoa(containerPort)
 
 	fmt.Printf("[hbctl] Stopping %s receiver on host port %d\n", strings.ToUpper(instance.ReceiverType), instance.HostPort)
 	return docker.ComposeWithEnv(env,
@@ -193,8 +198,13 @@ func LogsReceiver(opts ReceiverLogsOptions) error {
 		return err
 	}
 
+	containerPort := instance.ContainerPort
+	if containerPort <= 0 {
+		containerPort = blankInt(env["CONTAINER_PORT"], 7004)
+	}
+
 	env["HOST_PORT"] = strconv.Itoa(instance.HostPort)
-	env["CONTAINER_PORT"] = strconv.Itoa(instance.ContainerPort)
+	env["CONTAINER_PORT"] = strconv.Itoa(containerPort)
 
 	args := []string{
 		"-p", instance.Project,
