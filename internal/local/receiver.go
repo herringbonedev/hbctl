@@ -359,7 +359,7 @@ func receiverLifecycleEnvironment(receiverType, mode string, hostPort, container
 		"RECEIVER_TYPE":  receiverType,
 		"RECEIVER_MODE":  mode,
 		"FORWARD_ROUTE":  forwardRoute,
-		"INGESTION_KEY":  "",
+		"INGESTION_KEY":  ingestionKey,
 		"HB_ENTERPRISE":  "true",
 		"MONGO_HOST":     "",
 		"MONGO_PORT":     "",
@@ -377,7 +377,6 @@ func receiverLifecycleEnvironment(receiverType, mode string, hostPort, container
 		if ingestionKey == "" {
 			return nil, fmt.Errorf("forward mode requires an existing ingestion key via --ingestion-key or --ingestion-key-file")
 		}
-		env["INGESTION_KEY"] = ingestionKey
 	case "local":
 		mongoSecret, err := secrets.LoadMongo()
 		if err != nil {

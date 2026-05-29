@@ -48,7 +48,7 @@ func receiverStartCommand() *cobra.Command {
 				return fmt.Errorf("remote receivers cannot be forwarders")
 			}
 
-			if forwardRoute != "" && ingestionKey != "" && ingestionKeyFile != "" {
+			if ingestionKey != "" && ingestionKeyFile != "" {
 				return fmt.Errorf("use either --ingestion-key or --ingestion-key-file, not both")
 			}
 

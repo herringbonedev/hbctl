@@ -1,22 +1,23 @@
 package local
 
 const (
-	ComposeMongo                = "compose.mongo.yml"
-	ComposeReceiver             = "compose.logingestion.receiver.yml"
-	ComposeLogs                 = "compose.herringbone.logs.yml"
-	ComposeParserCardset        = "compose.parser.cardset.yml"
-	ComposeParserEnrich         = "compose.parser.enrichment.yml"
-	ComposeParserExtract        = "compose.parser.extractor.yml"
-	ComposeDetector             = "compose.detectionengine.detector.yml"
-	ComposeMatcher              = "compose.detectionengine.matcher.yml"
-	ComposeRuleset              = "compose.detectionengine.ruleset.yml"
-	ComposeOperationsCenter     = "compose.operations.center.yml"
-	ComposeIncidentSet          = "compose.incidents.incidentset.yml"
-	ComposeIncidentCorrelator   = "compose.incidents.correlator.yml"
-	ComposeIncidentOrchestrator = "compose.incidents.orchestrator.yml"
-	ComposeSearch               = "compose.herringbone.search.yml"
-	ComposeAuth                 = "compose.herringbone.auth.yml"
-	ComposeProxy                = "compose.proxy.yml"
+	ComposeMongo                 = "compose.mongo.yml"
+	ComposeReceiver              = "compose.logingestion.receiver.yml"
+	ComposeLogs                  = "compose.herringbone.logs.yml"
+	ComposeParserCardset         = "compose.parser.cardset.yml"
+	ComposeParserEnrich          = "compose.parser.enrichment.yml"
+	ComposeParserExtract         = "compose.parser.extractor.yml"
+	ComposeDetector              = "compose.detectionengine.detector.yml"
+	ComposeMatcher               = "compose.detectionengine.matcher.yml"
+	ComposeRuleset               = "compose.detectionengine.ruleset.yml"
+	ComposeOperationsCenter      = "compose.operations.center.yml"
+	ComposeIncidentSet           = "compose.incidents.incidentset.yml"
+	ComposeIncidentCorrelator    = "compose.incidents.correlator.yml"
+	ComposeIncidentOrchestrator  = "compose.incidents.orchestrator.yml"
+	ComposeSearch                = "compose.herringbone.search.yml"
+	ComposeAuth                  = "compose.herringbone.auth.yml"
+	ComposeProxy                 = "compose.proxy.yml"
+	ComposeFingerprintIdentifier = "compose.fingerprint.identifier.yml"
 )
 
 func ComposeFilesForElement(element string) []string {
@@ -51,6 +52,8 @@ func ComposeFilesForElement(element string) []string {
 		files = append(files, "-f", ComposeSearch)
 	case "herringbone-auth":
 		files = append(files, "-f", ComposeAuth)
+	case "fingerprint-identifier":
+		files = append(files, "-f", ComposeFingerprintIdentifier)
 	case "herringbone-proxy":
 		files = append(files, "-f", ComposeProxy)
 	}

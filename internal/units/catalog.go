@@ -14,6 +14,8 @@ var AllElements = []ElementInfo{
 	{Name: "herringbone-search", Description: "Read-only search API over MongoDB collections", Unit: "search"},
 	{Name: "herringbone-auth", Description: "Standard authentication API", Unit: "auth"},
 
+	{Name: "fingerprint-identifier", Description: "Source fingerprint identification service", Unit: "fingerprint"},
+
 	{Name: "parser-cardset", Description: "Cardset metadata parser service", Unit: "parser"},
 	{Name: "parser-enrichment", Description: "Log enrichment parser service", Unit: "parser"},
 	{Name: "parser-extractor", Description: "Regex/JSONPath extractor service", Unit: "parser"},
@@ -30,30 +32,29 @@ var AllElements = []ElementInfo{
 }
 
 var UnitElements = map[string][]string{
-	"database": 		 {"mongodb"},
-	"proxy": 		 	 {"proxy"},
-	"receiver":  		 {"logingestion-receiver"},
-	"logs":      		 {"herringbone-logs"},
-	"search":    		 {"herringbone-search"},
-	"auth":      		 {"herringbone-auth"},
+	"database":          {"mongodb"},
+	"proxy":             {"proxy"},
+	"receiver":          {"logingestion-receiver"},
+	"logs":              {"herringbone-logs"},
+	"search":            {"herringbone-search"},
+	"auth":              {"herringbone-auth"},
+	"fingerprint":       {"fingerprint-identifier"},
 	"operations-center": {"operations-center"},
-	"parser":    		 {"parser-cardset", "parser-enrichment", "parser-extractor"},
-	"detection": 		 {"detectionengine-detector", "detectionengine-matcher", "detectionengine-ruleset"},
-	"incidents": 		 {"incidents-incidentset", "incidents-correlator", "incidents-orchestrator"},
+	"parser":            {"parser-cardset", "parser-enrichment", "parser-extractor"},
+	"detection":         {"detectionengine-detector", "detectionengine-matcher", "detectionengine-ruleset"},
+	"incidents":         {"incidents-incidentset", "incidents-correlator", "incidents-orchestrator"},
 }
-
-
 
 var ServiceUnits = map[string][]string{
-	"logs":      		 {"herringbone-logs", "herringbone-search", "mongodb", "proxy"},
-	"search":    		 {"herringbone-search", "mongodb", "proxy"},
-	"auth":    		 {"herringbone-auth", "mongodb", "proxy"},
-	"receiver":  		 {"logingestion-receiver", "mongodb", "proxy"},
-	"parser":    		 {"parser-cardset", "parser-enrichment", "parser-extractor", "mongodb", "proxy"},
-	"detection": 		 {"detectionengine-detector", "detectionengine-matcher", "detectionengine-ruleset", "mongodb", "proxy"},
-	"incidents": 		 {"incidents-incidentset", "incidents-correlator", "incidents-orchestrator", "mongodb", "proxy"},
+	"logs":              {"herringbone-logs", "herringbone-search", "mongodb", "proxy"},
+	"search":            {"herringbone-search", "mongodb", "proxy"},
+	"auth":              {"herringbone-auth", "mongodb", "proxy"},
+	"fingerprint":       {"fingerprint-identifier", "mongodb", "proxy"},
+	"receiver":          {"logingestion-receiver", "mongodb", "proxy"},
+	"parser":            {"parser-cardset", "parser-enrichment", "parser-extractor", "mongodb", "proxy"},
+	"detection":         {"detectionengine-detector", "detectionengine-matcher", "detectionengine-ruleset", "mongodb", "proxy"},
+	"incidents":         {"incidents-incidentset", "incidents-correlator", "incidents-orchestrator", "mongodb", "proxy"},
 	"operations-center": {"operations-center", "proxy"},
-	"database":  		 {"mongodb"},
-	"proxy": 		 	 {"proxy"},
+	"database":          {"mongodb"},
+	"proxy":             {"proxy"},
 }
-
