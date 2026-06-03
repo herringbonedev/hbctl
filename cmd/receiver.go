@@ -30,6 +30,7 @@ func receiverStartCommand() *cobra.Command {
 	var composeFile string
 	var ingestionKey string
 	var ingestionKeyFile string
+	var enterprise bool
 
 	cmd := &cobra.Command{
 		Use:   "start",
@@ -71,6 +72,7 @@ func receiverStartCommand() *cobra.Command {
 				ComposeFile:      strings.TrimSpace(composeFile),
 				IngestionKey:     ingestionKey,
 				IngestionKeyFile: ingestionKeyFile,
+				Enterprise:       enterprise,
 			})
 		},
 	}
@@ -82,6 +84,7 @@ func receiverStartCommand() *cobra.Command {
 	cmd.Flags().StringVar(&composeFile, "compose-file", "", "Override the receiver compose file path")
 	cmd.Flags().StringVar(&ingestionKey, "ingestion-key", "", "Existing ingestion key")
 	cmd.Flags().StringVar(&ingestionKeyFile, "ingestion-key-file", "", "Path to ingestion key file")
+	cmd.Flags().BoolVar(&enterprise, "enterprise", true, "Start receiver in enterprise mode by setting HB_ENTERPRISE=true")
 	return cmd
 }
 

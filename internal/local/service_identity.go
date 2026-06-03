@@ -16,16 +16,25 @@ func serviceUUID(name string) string {
 
 var BootstrapServices = []ServiceIdentity{
 	{
-		Name: "fingerprint-identifier",
-		ID:   serviceUUID("fingerprint-identifier"),
+		Name: "fingerprint-scoreset-e",
+		ID:   serviceUUID("fingerprint-scoreset-e"),
 		Scopes: []string{
-			"logs:read",
-			"parser:cards:read",
+			"fingerprint:scorecards:read",
+			"fingerprint:scorecards:write",
 		},
 	},
 	{
-		Name: "parser-enrichment",
-		ID:   serviceUUID("parser-enrichment"),
+		Name: "fingerprint-identifier-e",
+		ID:   serviceUUID("fingerprint-identifier-e"),
+		Scopes: []string{
+			"logs:read",
+			"parser:cards:read",
+			"fingerprint:scorecards:read",
+		},
+	},
+	{
+		Name: "parser-enrichment-e",
+		ID:   serviceUUID("parser-enrichment-e"),
 		Scopes: []string{
 			"extractor:call",
 			"parser:cards:read",

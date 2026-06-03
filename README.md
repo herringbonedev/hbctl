@@ -37,7 +37,10 @@ Examples:
 An **element** is a single deployable service inside a unit.
 
 Examples:
-- `herringbone-auth`
+- `herringbone-auth-e`
+- `fingerprint-scoreset-e`
+- `fingerprint-identifier-e`
+- `parser-enrichment-e`
 - `parser-extractor`
 - `detectionengine-detector`
 - `operations-center`
@@ -107,8 +110,10 @@ hbctl start --unit parser
 Start a single element:
 
 ```bash
-hbctl start --element herringbone-auth
+hbctl start --element fingerprint-scoreset-e
 ```
+
+Legacy aliases such as `fingerprint-identifier`, `fingerprint-scoreset`, `parser-enrichment`, and `herringbone-auth` are normalized to their enterprise `-e` service names when applicable.
 
 Check status:
 
@@ -122,16 +127,93 @@ View logs:
 hbctl logs --unit parser --follow
 ```
 
-Stop everything:
+Stop everything without destroying containers:
 
 ```bash
-hbctl stop
+hbctl stop --all
+```
+
+`hbctl stop` no longer defaults to the full stack. You must specify `--all`, `--unit`, or `--element`. The default full-stack behavior is now `docker compose stop`, not `docker compose down`. If you intentionally need `down`, make it explicit:
+
+```bash
+hbctl stop --all --down
 ```
 
 Restart a service:
 
 ```bash
 hbctl restart --element parser-extractor
+```
+
+Cleanly upgrade the whole platform without tearing it down:
+
+```bash
+hbctl upgrade --all
+```
+
+Upgrade one service only:
+
+```bash
+hbctl upgrade --element fingerprint-identifier-e
+```
+
+
+## Enterprise Fingerprint Components
+
+This version of hbctl knows about the enterprise fingerprint services:
+
+```text
+fingerprint-scoreset-e
+fingerprint-identifier-e
+parser-enrichment-e
+```
+
+The `fingerprint` unit starts score-card management before the identifier:
+
+```bash
+hbctl start --unit fingerprint
+```
+
+The expected flow is:
+
+```text
+fingerprint-scoreset-e -> MongoDB score_cards
+fingerprint-identifier-e -> reads/caches score_cards
+parser-enrichment-e -> calls fingerprint-identifier-e
+```
+
+## Safer Lifecycle Behavior
+
+`hbctl stop` and `hbctl restart` now require explicit scope. This prevents accidentally affecting the whole stack when you meant to operate on one element.
+
+```bash
+hbctl stop --element parser-enrichment-e
+hbctl stop --unit fingerprint
+hbctl stop --all
+```
+
+Token generation is no longer part of normal element/unit starts. Service tokens are bootstrapped automatically for `hbctl start --all`, or explicitly when requested:
+
+```bash
+hbctl start --element herringbone-auth-e --bootstrap-tokens
+```
+
+The old `--no-token-create` flag remains accepted for compatibility, but element and unit starts do not create tokens by default anymore.
+
+## Clean Platform Upgrades
+
+Use `upgrade` instead of `stop` + `start` when refreshing images or recreating services.
+
+```bash
+hbctl upgrade --all
+hbctl upgrade --unit parser
+hbctl upgrade --element fingerprint-scoreset-e
+```
+
+Upgrade pulls images by default and recreates containers without running `compose down`. To skip pulling:
+
+```bash
+hbctl upgrade --all --no-pull
 ```
 
 ## Receiver Note

@@ -22,12 +22,14 @@ import (
 )
 
 type StartOptions struct {
-	Project       string
-	Element       string
-	Unit          string
-	All           bool
-	RecvType      string
-	NoTokenCreate bool
+	Project         string
+	Element         string
+	Unit            string
+	All             bool
+	RecvType        string
+	NoTokenCreate   bool
+	BootstrapTokens bool
+	Enterprise      bool
 }
 
 type requestOptions struct {
@@ -39,40 +41,20 @@ func secretsDirForProject() (string, error) {
 	if len(files) == 0 {
 		return "", fmt.Errorf("no compose files found")
 	}
-	composeFile := files[0]
+	composeFile := files[1]
 	base := filepath.Dir(composeFile)
 	return filepath.Join(base, "secrets", "runtime"), nil
 }
 
 func Start(opts StartOptions) error {
-	fmt.Println("[hbctl] Decrypting secrets...")
+	opts.Element = CanonicalElementName(strings.TrimSpace(opts.Element))
+	opts.Unit = strings.TrimSpace(opts.Unit)
+
+	fmt.Println("[hbctl] Decrypting MongoDB secrets...")
 
 	sec, err := secrets.LoadMongo()
 	if err != nil {
 		return fmt.Errorf("failed to load MongoDB secret: %w", err)
-	}
-
-	jwtSecret, err := secrets.LoadJWTSecret()
-	if err != nil {
-		return fmt.Errorf("failed to load JWT secret: %w", err)
-	}
-
-	svcKeys, err := secrets.LoadServiceKey()
-	if err != nil {
-		return fmt.Errorf("failed to load service keys: %w", err)
-	}
-
-	secretsDir, err := secretsDirForProject()
-	if err != nil {
-		return err
-	}
-
-	if !opts.NoTokenCreate {
-		if err := prepareAuthSecrets(secretsDir, jwtSecret.JWTSecret, svcKeys.PrivSvcKey, svcKeys.PubSvcKey); err != nil {
-			return err
-		}
-	} else {
-		fmt.Println("[hbctl] Skipping runtime secret generation (--no-token-create)")
 	}
 
 	env := map[string]string{
@@ -85,6 +67,46 @@ func Start(opts StartOptions) error {
 		"AUTH_DB":         sec.AuthSource,
 		"RECEIVER_TYPE":   "",
 		"MATCHER_API":     "",
+		"HB_ENTERPRISE":   fmt.Sprintf("%t", opts.Enterprise),
+	}
+
+	runtimeSecretsRequired := startNeedsRuntimeSecrets(opts)
+	tokenBootstrapRequired := startNeedsTokenBootstrap(opts)
+
+	if opts.NoTokenCreate {
+		if tokenBootstrapRequired {
+			fmt.Println("[hbctl] Skipping token bootstrap (--no-token-create)")
+		}
+		tokenBootstrapRequired = false
+	}
+
+	var secretsDir string
+	var jwtSecret *secrets.JWTSecret
+	var svcKeys *secrets.ServiceKey
+
+	if runtimeSecretsRequired || tokenBootstrapRequired {
+		fmt.Println("[hbctl] Preparing auth runtime secrets...")
+
+		jwtSecret, err = secrets.LoadJWTSecret()
+		if err != nil {
+			return fmt.Errorf("failed to load JWT secret: %w", err)
+		}
+
+		svcKeys, err = secrets.LoadServiceKey()
+		if err != nil {
+			return fmt.Errorf("failed to load service keys: %w", err)
+		}
+
+		secretsDir, err = secretsDirForProject()
+		if err != nil {
+			return err
+		}
+
+		if err := prepareAuthSecrets(secretsDir, jwtSecret.JWTSecret, svcKeys.PrivSvcKey, svcKeys.PubSvcKey); err != nil {
+			return err
+		}
+	} else if opts.NoTokenCreate {
+		fmt.Println("[hbctl] --no-token-create ignored: element/unit starts do not create tokens by default")
 	}
 
 	if opts.All {
@@ -98,7 +120,7 @@ func Start(opts StartOptions) error {
 			return err
 		}
 
-		if err := startElement(opts.Project, env, "herringbone-auth"); err != nil {
+		if err := startElement(opts.Project, env, "herringbone-auth-e"); err != nil {
 			return err
 		}
 
@@ -106,7 +128,7 @@ func Start(opts StartOptions) error {
 			_ = waitHTTP("http://localhost:8080/docs", 5*time.Second)
 		}
 
-		if !opts.NoTokenCreate {
+		if tokenBootstrapRequired {
 			if err := ensureAdminToken(secretsDir, jwtSecret.JWTSecret); err != nil {
 				return err
 			}
@@ -115,17 +137,15 @@ func Start(opts StartOptions) error {
 				return err
 			}
 		} else {
-			fmt.Println("[hbctl] Skipping service token bootstrap (--no-token-create)")
+			fmt.Println("[hbctl] Service token bootstrap not requested")
 		}
 
 		for _, e := range units.AllElements {
-			if e.Name == "herringbone-auth" {
+			element := CanonicalElementName(e.Name)
+			if element == "herringbone-auth-e" || element == "logingestion-receiver" {
 				continue
 			}
-			if e.Name == "logingestion-receiver" {
-				continue
-			}
-			if err := startElement(opts.Project, env, e.Name); err != nil {
+			if err := startElement(opts.Project, env, element); err != nil {
 				return err
 			}
 		}
@@ -140,7 +160,22 @@ func Start(opts StartOptions) error {
 		}
 
 		for _, el := range elements {
-			if err := startElement(opts.Project, env, el); err != nil {
+			if err := startElement(opts.Project, env, CanonicalElementName(el)); err != nil {
+				return err
+			}
+		}
+
+		if tokenBootstrapRequired {
+			if secretsDir == "" || jwtSecret == nil {
+				return fmt.Errorf("token bootstrap requested but auth runtime secrets were not prepared")
+			}
+			if err := waitHTTP("http://localhost:8080/health", 45*time.Second); err != nil {
+				return err
+			}
+			if err := ensureAdminToken(secretsDir, jwtSecret.JWTSecret); err != nil {
+				return err
+			}
+			if err := bootstrapServices(secretsDir); err != nil {
 				return err
 			}
 		}
@@ -157,10 +192,51 @@ func Start(opts StartOptions) error {
 			env["RECEIVER_TYPE"] = strings.ToUpper(opts.RecvType)
 		}
 
-		return startElement(opts.Project, env, opts.Element)
+		if err := startElement(opts.Project, env, opts.Element); err != nil {
+			return err
+		}
+
+		if tokenBootstrapRequired {
+			if secretsDir == "" || jwtSecret == nil {
+				return fmt.Errorf("token bootstrap requested but auth runtime secrets were not prepared")
+			}
+			if err := waitHTTP("http://localhost:8080/health", 45*time.Second); err != nil {
+				return err
+			}
+			if err := ensureAdminToken(secretsDir, jwtSecret.JWTSecret); err != nil {
+				return err
+			}
+			if err := bootstrapServices(secretsDir); err != nil {
+				return err
+			}
+		}
+
+		return nil
 	}
 
 	return fmt.Errorf("error: specify --element, --unit, or --all")
+}
+
+func startNeedsRuntimeSecrets(opts StartOptions) bool {
+	if opts.All || opts.BootstrapTokens {
+		return true
+	}
+	if CanonicalElementName(opts.Element) == "herringbone-auth-e" {
+		return true
+	}
+	for _, element := range units.UnitElements[opts.Unit] {
+		if CanonicalElementName(element) == "herringbone-auth-e" {
+			return true
+		}
+	}
+	return false
+}
+
+func startNeedsTokenBootstrap(opts StartOptions) bool {
+	if opts.BootstrapTokens {
+		return true
+	}
+	return opts.All
 }
 
 func bootstrapServices(secretsDir string) error {
@@ -348,9 +424,88 @@ func prepareAuthSecrets(secretsDir, jwtSecret, svcPriv, svcPub string) error {
 	return nil
 }
 
+func requiredStartElement(element string) bool {
+	switch CanonicalElementName(strings.TrimSpace(element)) {
+	case "herringbone-auth-e", "herringbone-proxy", "mongodb":
+		return true
+	default:
+		return false
+	}
+}
+
+func composeFileArgs(composeArgs []string) ([]string, error) {
+	files := []string{}
+	for i := 0; i < len(composeArgs); i++ {
+		if composeArgs[i] != "-f" {
+			continue
+		}
+
+		if i+1 >= len(composeArgs) {
+			return nil, fmt.Errorf("missing compose file after -f")
+		}
+
+		files = append(files, composeArgs[i+1])
+		i++
+	}
+	return files, nil
+}
+
+func shouldStartElement(element string, composeArgs []string) (bool, string, error) {
+	files, err := composeFileArgs(composeArgs)
+	if err != nil {
+		return false, "", err
+	}
+
+	if len(files) == 0 {
+		if requiredStartElement(element) {
+			return false, "", fmt.Errorf("required element %q has no compose file mapping", element)
+		}
+		return false, "no compose file mapping", nil
+	}
+
+	hasElementCompose := false
+	for _, file := range files {
+		file = strings.TrimSpace(file)
+		if file == "" {
+			continue
+		}
+
+		if file != ComposeMongo || CanonicalElementName(element) == "mongodb" {
+			hasElementCompose = true
+		}
+
+		if _, err := os.Stat(file); err != nil {
+			if file == ComposeMongo || requiredStartElement(element) {
+				return false, "", fmt.Errorf("required compose file missing for %q: %s", element, file)
+			}
+			return false, fmt.Sprintf("compose file missing: %s", file), nil
+		}
+	}
+
+	if !hasElementCompose {
+		if requiredStartElement(element) {
+			return false, "", fmt.Errorf("required element %q has no element compose file mapping", element)
+		}
+		return false, "no element compose file mapping", nil
+	}
+
+	return true, "", nil
+}
+
 func startElement(project string, env map[string]string, element string) error {
+	composeArgs := ComposeFilesForElement(element)
+	start, reason, err := shouldStartElement(element, composeArgs)
+	if err != nil {
+		return err
+	}
+	if !start {
+		fmt.Printf("[hbctl] Skipping %s: %s\n", element, reason)
+		return nil
+	}
+
 	args := []string{"-p", project}
-	args = append(args, ComposeFilesForElement(element)...)
+	args = append(args, composeArgs...)
+	element = CanonicalElementName(element)
 	args = append(args, "up", "-d", "--no-recreate", element)
 
 	fmt.Println("[hbctl] Starting", element, "...")
@@ -381,6 +536,9 @@ func ensureDatabase(project string, sec *secrets.MongoSecret) error {
 	}
 
 	fmt.Println("[hbctl] Ensuring MongoDB is running...")
+	if _, err := os.Stat(ComposeMongo); err != nil {
+		return fmt.Errorf("required mongodb compose file missing: %s", ComposeMongo)
+	}
 	if err := docker.ComposeWithEnv(env,
 		"-p", project,
 		"-f", ComposeMongo,

@@ -12,12 +12,13 @@ var AllElements = []ElementInfo{
 
 	{Name: "herringbone-logs", Description: "Logs API", Unit: "logs"},
 	{Name: "herringbone-search", Description: "Read-only search API over MongoDB collections", Unit: "search"},
-	{Name: "herringbone-auth", Description: "Standard authentication API", Unit: "auth"},
+	{Name: "herringbone-auth-e", Description: "Enterprise authentication API", Unit: "auth"},
 
-	{Name: "fingerprint-identifier", Description: "Source fingerprint identification service", Unit: "fingerprint"},
+	{Name: "fingerprint-scoreset-e", Description: "Enterprise fingerprint score-card CRUD service backed by MongoDB score_cards", Unit: "fingerprint"},
+	{Name: "fingerprint-identifier-e", Description: "Enterprise source fingerprint identification service using MongoDB score_cards", Unit: "fingerprint"},
 
 	{Name: "parser-cardset", Description: "Cardset metadata parser service", Unit: "parser"},
-	{Name: "parser-enrichment", Description: "Log enrichment parser service", Unit: "parser"},
+	{Name: "parser-enrichment-e", Description: "Enterprise log enrichment parser service", Unit: "parser"},
 	{Name: "parser-extractor", Description: "Regex/JSONPath extractor service", Unit: "parser"},
 
 	{Name: "detectionengine-detector", Description: "Detection engine detector service", Unit: "detection"},
@@ -33,28 +34,28 @@ var AllElements = []ElementInfo{
 
 var UnitElements = map[string][]string{
 	"database":          {"mongodb"},
-	"proxy":             {"proxy"},
+	"proxy":             {"herringbone-proxy"},
 	"receiver":          {"logingestion-receiver"},
 	"logs":              {"herringbone-logs"},
 	"search":            {"herringbone-search"},
-	"auth":              {"herringbone-auth"},
-	"fingerprint":       {"fingerprint-identifier"},
+	"auth":              {"herringbone-auth-e"},
+	"fingerprint":       {"fingerprint-scoreset-e", "fingerprint-identifier-e"},
 	"operations-center": {"operations-center"},
-	"parser":            {"parser-cardset", "parser-enrichment", "parser-extractor"},
+	"parser":            {"parser-cardset", "parser-enrichment-e", "parser-extractor"},
 	"detection":         {"detectionengine-detector", "detectionengine-matcher", "detectionengine-ruleset"},
 	"incidents":         {"incidents-incidentset", "incidents-correlator", "incidents-orchestrator"},
 }
 
 var ServiceUnits = map[string][]string{
-	"logs":              {"herringbone-logs", "herringbone-search", "mongodb", "proxy"},
-	"search":            {"herringbone-search", "mongodb", "proxy"},
-	"auth":              {"herringbone-auth", "mongodb", "proxy"},
-	"fingerprint":       {"fingerprint-identifier", "mongodb", "proxy"},
-	"receiver":          {"logingestion-receiver", "mongodb", "proxy"},
-	"parser":            {"parser-cardset", "parser-enrichment", "parser-extractor", "mongodb", "proxy"},
-	"detection":         {"detectionengine-detector", "detectionengine-matcher", "detectionengine-ruleset", "mongodb", "proxy"},
-	"incidents":         {"incidents-incidentset", "incidents-correlator", "incidents-orchestrator", "mongodb", "proxy"},
-	"operations-center": {"operations-center", "proxy"},
+	"logs":              {"herringbone-logs", "herringbone-search", "mongodb", "herringbone-proxy"},
+	"search":            {"herringbone-search", "mongodb", "herringbone-proxy"},
+	"auth":              {"herringbone-auth-e", "mongodb", "herringbone-proxy"},
+	"fingerprint":       {"fingerprint-scoreset-e", "fingerprint-identifier-e", "mongodb", "herringbone-proxy"},
+	"receiver":          {"logingestion-receiver", "mongodb", "herringbone-proxy"},
+	"parser":            {"parser-cardset", "parser-enrichment-e", "parser-extractor", "fingerprint-identifier-e", "fingerprint-scoreset-e", "mongodb", "herringbone-proxy"},
+	"detection":         {"detectionengine-detector", "detectionengine-matcher", "detectionengine-ruleset", "mongodb", "herringbone-proxy"},
+	"incidents":         {"incidents-incidentset", "incidents-correlator", "incidents-orchestrator", "mongodb", "herringbone-proxy"},
+	"operations-center": {"operations-center", "herringbone-proxy"},
 	"database":          {"mongodb"},
-	"proxy":             {"proxy"},
+	"proxy":             {"herringbone-proxy"},
 }

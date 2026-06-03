@@ -32,6 +32,7 @@ type ReceiverStartOptions struct {
 	ComposeFile      string
 	IngestionKey     string
 	IngestionKeyFile string
+	Enterprise       bool
 }
 
 type ReceiverStopOptions struct {
@@ -312,6 +313,7 @@ func receiverEnvironment(opts ReceiverStartOptions, resolvedHostPort int) (map[s
 		opts.ContainerPort,
 		opts.ForwardRoute,
 		keyValue,
+		opts.Enterprise,
 	)
 }
 
@@ -331,7 +333,7 @@ func resolveIngestionKeyValue(inlineValue, filePath string) (string, error) {
 	return inlineValue, nil
 }
 
-func receiverLifecycleEnvironment(receiverType, mode string, hostPort, containerPort int, forwardRoute, ingestionKey string) (map[string]string, error) {
+func receiverLifecycleEnvironment(receiverType, mode string, hostPort, containerPort int, forwardRoute, ingestionKey string, enterprise bool) (map[string]string, error) {
 	receiverType = strings.ToUpper(strings.TrimSpace(receiverType))
 	mode = strings.ToLower(strings.TrimSpace(mode))
 	if mode == "" {
@@ -360,7 +362,7 @@ func receiverLifecycleEnvironment(receiverType, mode string, hostPort, container
 		"RECEIVER_MODE":  mode,
 		"FORWARD_ROUTE":  forwardRoute,
 		"INGESTION_KEY":  ingestionKey,
-		"HB_ENTERPRISE":  "true",
+		"HB_ENTERPRISE":  fmt.Sprintf("%t", enterprise),
 		"MONGO_HOST":     "",
 		"MONGO_PORT":     "",
 		"MONGO_USER":     "",

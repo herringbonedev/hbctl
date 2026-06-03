@@ -17,26 +17,16 @@ type LogsOptions struct {
 }
 
 func Logs(opts LogsOptions) error {
-	env := map[string]string{
-		"MONGO_USER":    "",
-		"MONGO_PASS":    "",
-		"DB_NAME":       "",
-		"AUTH_DB":       "",
-		"RECEIVER_TYPE": "",
-	}
-
+	env := blankLifecycleEnv(true)
 	composeArgs := []string{"-p", opts.Project}
 
-	// If --unit specified, expand to elements
 	if opts.Unit != "" {
 		fmt.Println("[hbctl] Showing logs for unit:", opts.Unit)
 		els := units.UnitElements[opts.Unit]
 		if len(els) == 0 {
 			return fmt.Errorf("unknown unit: %s", opts.Unit)
 		}
-		for _, e := range els {
-			composeArgs = append(composeArgs, ComposeFilesForElement(e)...)
-		}
+		composeArgs = append(composeArgs, ComposeFilesForElements(els)...)
 		composeArgs = append(composeArgs, "logs")
 		if opts.Follow {
 			composeArgs = append(composeArgs, "-f")
@@ -44,15 +34,18 @@ func Logs(opts LogsOptions) error {
 		if opts.Tail > 0 {
 			composeArgs = append(composeArgs, "--tail", strconv.Itoa(opts.Tail))
 		}
-		composeArgs = append(composeArgs, els...)
+		for _, el := range els {
+			composeArgs = append(composeArgs, CanonicalElementName(el))
+		}
 		return docker.ComposeWithEnv(env, composeArgs...)
 	}
 
-	// Otherwise, explicit elements from args
 	if len(opts.Elements) > 0 {
+		canonical := make([]string, 0, len(opts.Elements))
 		for _, e := range opts.Elements {
-			composeArgs = append(composeArgs, ComposeFilesForElement(e)...)
+			canonical = append(canonical, CanonicalElementName(e))
 		}
+		composeArgs = append(composeArgs, ComposeFilesForElements(canonical)...)
 		composeArgs = append(composeArgs, "logs")
 		if opts.Follow {
 			composeArgs = append(composeArgs, "-f")
@@ -60,7 +53,7 @@ func Logs(opts LogsOptions) error {
 		if opts.Tail > 0 {
 			composeArgs = append(composeArgs, "--tail", strconv.Itoa(opts.Tail))
 		}
-		composeArgs = append(composeArgs, opts.Elements...)
+		composeArgs = append(composeArgs, canonical...)
 		return docker.ComposeWithEnv(env, composeArgs...)
 	}
 

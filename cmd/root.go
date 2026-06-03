@@ -36,9 +36,9 @@ func init() {
 	rootCmd.AddCommand(startCommand())
 	rootCmd.AddCommand(stopCommand())
 	rootCmd.AddCommand(restartCommand())
+	rootCmd.AddCommand(upgradeCommand())
 	rootCmd.AddCommand(statusCommand())
 	rootCmd.AddCommand(logsCommand())
 	rootCmd.AddCommand(loginCommand())
 	rootCmd.AddCommand(receiverCommand())
 }
-

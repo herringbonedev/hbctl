@@ -2,13 +2,18 @@ package local
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/herringbonedev/hbctl/internal/docker"
+	"github.com/herringbonedev/hbctl/internal/units"
 )
 
 type StopOptions struct {
 	Project string
 	Element string
+	Unit    string
+	All     bool
+	Down    bool
 }
 
 func Stop(opts StopOptions) error {
@@ -22,20 +27,47 @@ func Stop(opts StopOptions) error {
 		"AUTH_DB":         "",
 		"RECEIVER_TYPE":   "",
 		"MATCHER_API":     "",
-	}
-
-	composeArgs := []string{
-		"-p", opts.Project,
+		"HB_ENTERPRISE":   "true",
 	}
 
 	if opts.Element != "" {
-		fmt.Println("[hbctl] Stopping element:", opts.Element)
-		composeArgs = append(composeArgs, ComposeFilesForElement(opts.Element)...)
-		composeArgs = append(composeArgs, "stop", opts.Element)
+		return stopElement(opts.Project, env, opts.Element)
+	}
+
+	if opts.Unit != "" {
+		elements := units.UnitElements[strings.TrimSpace(opts.Unit)]
+		if len(elements) == 0 {
+			return fmt.Errorf("unknown unit: %s", opts.Unit)
+		}
+		for _, element := range elements {
+			if err := stopElement(opts.Project, env, element); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+
+	if opts.All {
+		composeArgs := []string{"-p", opts.Project}
+		composeArgs = append(composeArgs, ComposeFilesForFullStack()...)
+		if opts.Down {
+			fmt.Println("[hbctl] Running explicit full-stack compose down...")
+			composeArgs = append(composeArgs, "down")
+		} else {
+			fmt.Println("[hbctl] Stopping full Herringbone stack without removing containers...")
+			composeArgs = append(composeArgs, "stop")
+		}
 		return docker.ComposeWithEnv(env, composeArgs...)
 	}
 
-	fmt.Println("[hbctl] Stopping full Herringbone stack...")
-	composeArgs = append(composeArgs, "down")
+	return fmt.Errorf("specify --element, --unit, or --all")
+}
+
+func stopElement(project string, env map[string]string, element string) error {
+	element = CanonicalElementName(element)
+	fmt.Println("[hbctl] Stopping element:", element)
+	composeArgs := []string{"-p", project}
+	composeArgs = append(composeArgs, ComposeFilesForElement(element)...)
+	composeArgs = append(composeArgs, "stop", element)
 	return docker.ComposeWithEnv(env, composeArgs...)
 }
