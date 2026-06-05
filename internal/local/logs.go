@@ -5,6 +5,7 @@ import (
 	"strconv"
 
 	"github.com/herringbonedev/hbctl/internal/docker"
+	"github.com/herringbonedev/hbctl/internal/ui"
 	"github.com/herringbonedev/hbctl/internal/units"
 )
 
@@ -19,14 +20,24 @@ type LogsOptions struct {
 func Logs(opts LogsOptions) error {
 	env := blankLifecycleEnv(true)
 	composeArgs := []string{"-p", opts.Project}
+	ui.Header("Herringbone logs")
 
 	if opts.Unit != "" {
-		fmt.Println("[hbctl] Showing logs for unit:", opts.Unit)
+		ui.Section("Unit")
+		ui.KeyValues([][2]string{{"unit", opts.Unit}, {"follow", ui.Bool(opts.Follow)}, {"tail", fmt.Sprintf("%d", opts.Tail)}})
 		els := units.UnitElements[opts.Unit]
 		if len(els) == 0 {
 			return fmt.Errorf("unknown unit: %s", opts.Unit)
 		}
-		composeArgs = append(composeArgs, ComposeFilesForElements(els)...)
+		operable, err := operableElements(els)
+		if err != nil {
+			return err
+		}
+		if len(operable) == 0 {
+			ui.Warn("No available elements found for unit %s", opts.Unit)
+			return nil
+		}
+		composeArgs = append(composeArgs, ComposeFilesForElements(operable)...)
 		composeArgs = append(composeArgs, "logs")
 		if opts.Follow {
 			composeArgs = append(composeArgs, "-f")
@@ -34,17 +45,21 @@ func Logs(opts LogsOptions) error {
 		if opts.Tail > 0 {
 			composeArgs = append(composeArgs, "--tail", strconv.Itoa(opts.Tail))
 		}
-		for _, el := range els {
-			composeArgs = append(composeArgs, CanonicalElementName(el))
-		}
+		composeArgs = append(composeArgs, operable...)
 		return docker.ComposeWithEnv(env, composeArgs...)
 	}
 
 	if len(opts.Elements) > 0 {
-		canonical := make([]string, 0, len(opts.Elements))
-		for _, e := range opts.Elements {
-			canonical = append(canonical, CanonicalElementName(e))
+		canonical, err := operableElements(opts.Elements)
+		if err != nil {
+			return err
 		}
+		if len(canonical) == 0 {
+			ui.Warn("No available elements found")
+			return nil
+		}
+		ui.Section("Elements")
+		ui.KeyValues([][2]string{{"elements", fmt.Sprintf("%d", len(canonical))}, {"follow", ui.Bool(opts.Follow)}, {"tail", fmt.Sprintf("%d", opts.Tail)}})
 		composeArgs = append(composeArgs, ComposeFilesForElements(canonical)...)
 		composeArgs = append(composeArgs, "logs")
 		if opts.Follow {

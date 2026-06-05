@@ -5,32 +5,31 @@ import (
 	"strings"
 
 	"github.com/herringbonedev/hbctl/internal/docker"
+	"github.com/herringbonedev/hbctl/internal/ui"
 	"github.com/herringbonedev/hbctl/internal/units"
 )
 
 type RestartOptions struct {
-	Project string
-	Element string
-	Unit    string
-	All     bool
+	Project    string
+	Element    string
+	Unit       string
+	All        bool
+	Enterprise bool
 }
 
 func Restart(opts RestartOptions) error {
-	env := map[string]string{
-		"MONGO_ROOT_PASS": "",
-		"MONGO_HOST":      "",
-		"MONGO_PORT":      "",
-		"MONGO_USER":      "",
-		"MONGO_PASS":      "",
-		"DB_NAME":         "",
-		"AUTH_DB":         "",
-		"RECEIVER_TYPE":   "",
-		"MATCHER_API":     "",
-		"HB_ENTERPRISE":   "true",
-	}
+	env := blankLifecycleEnv(opts.Enterprise)
+	ui.Header("Herringbone restart")
 
 	if opts.Element != "" {
-		return restartElement(opts.Project, env, opts.Element)
+		element := ElementForMode(opts.Element, opts.Enterprise)
+		if element == "logingestion-receiver" {
+			return fmt.Errorf("logingestion-receiver is managed separately; use hbctl receiver restart instead")
+		}
+		if IsEnterpriseElement(element) && !opts.Enterprise {
+			return fmt.Errorf("%s is an enterprise service; pass --enterprise to restart it", element)
+		}
+		return restartElement(opts.Project, env, element)
 	}
 
 	if opts.Unit != "" {
@@ -38,30 +37,80 @@ func Restart(opts RestartOptions) error {
 		if len(elements) == 0 {
 			return fmt.Errorf("unknown unit: %s", opts.Unit)
 		}
-		for _, element := range elements {
+		if strings.TrimSpace(opts.Unit) == "auth" {
+			elements = []string{AuthElementForMode(opts.Enterprise)}
+		}
+		ui.Section("Unit")
+		ui.KeyValues([][2]string{{"unit", opts.Unit}, {"elements", fmt.Sprintf("%d", len(elements))}})
+		elements = filterEnterpriseElements(elements, opts.Enterprise)
+		operable, err := operableElements(elements)
+		if err != nil {
+			return err
+		}
+		for _, element := range operable {
+			if element == "logingestion-receiver" {
+				ui.Skip("logingestion-receiver: use hbctl receiver restart")
+				continue
+			}
 			if err := restartElement(opts.Project, env, element); err != nil {
 				return err
 			}
 		}
+		ui.Success("Unit %s restarted", opts.Unit)
 		return nil
 	}
 
 	if opts.All {
-		fmt.Println("[hbctl] Restarting full Herringbone stack...")
-		composeArgs := []string{"-p", opts.Project}
-		composeArgs = append(composeArgs, ComposeFilesForFullStack()...)
-		composeArgs = append(composeArgs, "restart")
-		return docker.ComposeWithEnv(env, composeArgs...)
+		if err := validateCoreComposeFiles(); err != nil {
+			return err
+		}
+		ui.Section("Full stack")
+		ui.Step("Restarting all available services")
+		for _, element := range fullStackRestartElements(opts.Enterprise) {
+			if err := restartElement(opts.Project, env, element); err != nil {
+				return err
+			}
+		}
+		ui.Success("Full stack restarted")
+		return nil
 	}
 
 	return fmt.Errorf("specify --element, --unit, or --all")
 }
 
+func fullStackRestartElements(enterprise bool) []string {
+	elements := []string{"mongodb", "herringbone-proxy", AuthElementForMode(enterprise), "herringbone-logs", "herringbone-search", "parser-cardset", "parser-extractor", "detectionengine-detector", "detectionengine-matcher", "detectionengine-ruleset", "incidents-incidentset", "incidents-correlator", "incidents-orchestrator", "operations-center"}
+	if enterprise {
+		elements = append(elements, "fingerprint-scoreset", "fingerprint-identifier", "parser-enrichment")
+	}
+	return elements
+}
+
 func restartElement(project string, env map[string]string, element string) error {
 	element = CanonicalElementName(element)
-	fmt.Println("[hbctl] Restarting element:", element)
+	if IsEnterpriseElement(element) && !strings.EqualFold(strings.TrimSpace(env["HB_ENTERPRISE"]), "true") {
+		ui.Skip("%s: enterprise service requires --enterprise", element)
+		return nil
+	}
+	start, reason, err := shouldStartElement(element, ComposeFilesForElement(element))
+	if err != nil {
+		return err
+	}
+	if !start {
+		ui.Skip("%s: %s", element, reason)
+		return nil
+	}
+	ui.Step("Restarting %s", element)
 	composeArgs := []string{"-p", project}
 	composeArgs = append(composeArgs, ComposeFilesForElement(element)...)
-	composeArgs = append(composeArgs, "restart", element)
-	return docker.ComposeWithEnv(env, composeArgs...)
+	service, err := resolveComposeServiceName(ComposeFilesForElement(element), element)
+	if err != nil {
+		return err
+	}
+	composeArgs = append(composeArgs, "restart", service)
+	if err := docker.ComposeWithEnv(env, composeArgs...); err != nil {
+		return err
+	}
+	ui.Success("%s restarted", element)
+	return nil
 }

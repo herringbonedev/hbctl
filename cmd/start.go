@@ -13,6 +13,7 @@ func startCommand() *cobra.Command {
 	var unit string
 	var all bool
 	var receiverType string
+	var tokenCreate bool
 	var noTokenCreate bool
 	var bootstrapTokens bool
 	var enterprise bool
@@ -35,10 +36,12 @@ func startCommand() *cobra.Command {
 
 			return local.Start(local.StartOptions{
 				Project:         projectName,
+				SecretsDir:      secretsDirOverride,
 				Element:         strings.TrimSpace(element),
 				Unit:            strings.TrimSpace(unit),
 				All:             all,
 				RecvType:        receiverType,
+				TokenCreate:     tokenCreate,
 				NoTokenCreate:   noTokenCreate,
 				BootstrapTokens: bootstrapTokens,
 				Enterprise:      enterprise,
@@ -50,8 +53,11 @@ func startCommand() *cobra.Command {
 	cmd.Flags().StringVar(&unit, "unit", "", "Unit to start")
 	cmd.Flags().BoolVar(&all, "all", false, "Start the full stack")
 	cmd.Flags().StringVar(&receiverType, "type", "", "Receiver type for logingestion-receiver: http, tcp, udp, or remote")
-	cmd.Flags().BoolVar(&noTokenCreate, "no-token-create", false, "Deprecated compatibility flag. Token bootstrap now only runs for --all unless --bootstrap-tokens is set")
-	cmd.Flags().BoolVar(&bootstrapTokens, "bootstrap-tokens", false, "Create or refresh admin/service tokens after auth is reachable")
-	cmd.Flags().BoolVar(&enterprise, "enterprise", true, "Start in enterprise mode by setting HB_ENTERPRISE=true")
+	cmd.Flags().BoolVar(&tokenCreate, "token-create", false, "Create or refresh admin/service tokens after auth is reachable")
+	cmd.Flags().BoolVar(&bootstrapTokens, "bootstrap-tokens", false, "Deprecated alias for --token-create")
+	cmd.Flags().BoolVar(&noTokenCreate, "no-token-create", false, "Deprecated no-op. Token creation is opt-in with --token-create")
+	_ = cmd.Flags().MarkHidden("bootstrap-tokens")
+	_ = cmd.Flags().MarkHidden("no-token-create")
+	cmd.Flags().BoolVar(&enterprise, "enterprise", false, "Start enterprise services and set HB_ENTERPRISE=true")
 	return cmd
 }

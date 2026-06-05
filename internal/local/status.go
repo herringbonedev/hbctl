@@ -1,15 +1,13 @@
 package local
 
 import (
-	"bufio"
-	"bytes"
 	"encoding/json"
 	"fmt"
 	"os"
-	"os/exec"
+	"sort"
 	"strings"
-	"text/tabwriter"
 
+	"github.com/herringbonedev/hbctl/internal/ui"
 	"github.com/herringbonedev/hbctl/internal/units"
 )
 
@@ -21,24 +19,20 @@ type Publisher struct {
 }
 
 type ContainerStatus struct {
-	Name       string
-	Service    string
-	State      string
-	Status     string
-	Publishers []Publisher
-}
-
-type dockerPSRow struct {
-	Names  string `json:"Names"`
-	State  string `json:"State"`
-	Status string `json:"Status"`
-	Ports  string `json:"Ports"`
+	Name       string      `json:"name"`
+	Project    string      `json:"project"`
+	Service    string      `json:"service"`
+	State      string      `json:"state"`
+	Status     string      `json:"status"`
+	Protected  bool        `json:"protected"`
+	Publishers []Publisher `json:"publishers,omitempty"`
 }
 
 type StatusOptions struct {
 	Project string
 	Unit    string
 	JSON    bool
+	All     bool
 }
 
 func Status(opts StatusOptions) error {
@@ -47,50 +41,34 @@ func Status(opts StatusOptions) error {
 		project = "herringbone"
 	}
 
-	cmd := exec.Command(
-		"docker", "ps",
-		"--filter", fmt.Sprintf("label=com.docker.compose.project=%s", project),
-		"--format", "json",
-	)
-	cmd.Env = os.Environ()
-
-	out, err := cmd.Output()
+	containers, err := listHerringboneContainers(project, opts.All)
 	if err != nil {
-		if ee, ok := err.(*exec.ExitError); ok {
-			os.Stderr.Write(ee.Stderr)
-		}
 		return err
 	}
 
-	var rows []ContainerStatus
-
-	scanner := bufio.NewScanner(bytes.NewReader(out))
-	for scanner.Scan() {
-		var r dockerPSRow
-		if err := json.Unmarshal(scanner.Bytes(), &r); err != nil {
-			return err
-		}
-
-		service := extractServiceName(r.Names)
-
+	rows := make([]ContainerStatus, 0, len(containers))
+	for _, container := range containers {
+		service := CanonicalElementName(container.Service)
 		rows = append(rows, ContainerStatus{
-			Name:       r.Names,
+			Name:       container.Name,
+			Project:    container.Project,
 			Service:    service,
-			State:      r.State,
-			Status:     r.Status,
-			Publishers: parsePorts(r.Ports),
+			State:      container.State,
+			Status:     container.Status,
+			Protected:  isProtectedCoreService(service),
+			Publishers: parsePorts(container.Ports),
 		})
 	}
 
 	if opts.Unit != "" {
 		allowed := map[string]bool{}
 		for _, s := range units.ServiceUnits[opts.Unit] {
-			allowed[s] = true
+			allowed[CanonicalElementName(s)] = true
 		}
 
 		var filtered []ContainerStatus
 		for _, r := range rows {
-			if allowed[r.Service] {
+			if allowed[CanonicalElementName(r.Service)] {
 				filtered = append(filtered, r)
 			}
 		}
@@ -103,35 +81,132 @@ func Status(opts StatusOptions) error {
 		return enc.Encode(rows)
 	}
 
-	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, "SERVICE\tSTATE\tSTATUS\tPORTS")
-
+	running := 0
+	protectedRunning := 0
 	for _, r := range rows {
-		ports := ""
-		if len(r.Publishers) > 0 {
-			var parts []string
-			for _, p := range r.Publishers {
-				host := p.URL
-				if host == "" {
-					host = "0.0.0.0"
-				}
-				parts = append(parts,
-					fmt.Sprintf("%s:%d->%d/%s",
-						host,
-						p.PublishedPort,
-						p.TargetPort,
-						strings.ToLower(p.Protocol),
-					),
-				)
+		if strings.EqualFold(r.State, "running") {
+			running++
+			if r.Protected {
+				protectedRunning++
 			}
-			ports = strings.Join(parts, ", ")
 		}
-
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", r.Service, r.State, r.Status, ports)
 	}
 
-	w.Flush()
+	ui.Header("Herringbone status")
+	ui.KeyValues([][2]string{
+		{"project", project},
+		{"containers", statusContainerSummary(len(rows), running, opts.All)},
+		{"protected core", fmt.Sprintf("%d running", protectedRunning)},
+	})
+
+	if !opts.All {
+		ui.Info("Showing active containers only. Use hbctl status --all to include stopped containers.")
+	}
+
+	if len(rows) == 0 {
+		ui.Success("No matching Herringbone containers found")
+		return nil
+	}
+
+	summaries := summarizeStatusRows(rows)
+	tableRows := make([][]string, 0, len(summaries))
+	for _, summary := range summaries {
+		tableRows = append(tableRows, []string{
+			summary.Service,
+			formatContainerState(summary.State),
+			summary.Replicas,
+			summary.Ports,
+		})
+	}
+
+	ui.Table([]string{"SERVICE", "STATE", "REPLICAS", "PORTS"}, tableRows)
 	return nil
+}
+
+type serviceStatusSummary struct {
+	Service  string
+	State    string
+	Replicas string
+	Ports    string
+}
+
+func summarizeStatusRows(rows []ContainerStatus) []serviceStatusSummary {
+	byService := map[string][]ContainerStatus{}
+	order := []string{}
+	for _, row := range rows {
+		key := CanonicalElementName(row.Service)
+		if _, ok := byService[key]; !ok {
+			order = append(order, key)
+		}
+		byService[key] = append(byService[key], row)
+	}
+
+	out := make([]serviceStatusSummary, 0, len(order))
+	for _, service := range order {
+		items := byService[service]
+		running := 0
+		states := map[string]int{}
+		ports := map[string]bool{}
+		for _, item := range items {
+			state := strings.ToLower(strings.TrimSpace(item.State))
+			if state == "" {
+				state = "unknown"
+			}
+			states[state]++
+			if state == "running" {
+				running++
+			}
+			for _, p := range item.Publishers {
+				if p.PublishedPort == 0 || p.TargetPort == 0 {
+					continue
+				}
+				ports[fmt.Sprintf("%d→%d/%s", p.PublishedPort, p.TargetPort, strings.ToLower(p.Protocol))] = true
+			}
+		}
+
+		state := "unknown"
+		switch {
+		case running == len(items):
+			state = "running"
+		case running > 0:
+			state = "mixed"
+		case len(states) == 1:
+			for s := range states {
+				state = s
+			}
+		default:
+			state = "stopped"
+		}
+
+		portList := make([]string, 0, len(ports))
+		for port := range ports {
+			portList = append(portList, port)
+		}
+		sort.Strings(portList)
+		portText := strings.Join(portList, ", ")
+		if portText == "" {
+			portText = "-"
+		}
+
+		serviceName := service
+		if isProtectedCoreService(service) {
+			serviceName += " " + ui.Yellow("core")
+		}
+		out = append(out, serviceStatusSummary{
+			Service:  serviceName,
+			State:    state,
+			Replicas: fmt.Sprintf("%d/%d", running, len(items)),
+			Ports:    portText,
+		})
+	}
+	return out
+}
+
+func statusContainerSummary(total, running int, includeStopped bool) string {
+	if includeStopped {
+		return fmt.Sprintf("%d total / %d running", total, running)
+	}
+	return fmt.Sprintf("%d active", total)
 }
 
 func extractServiceName(container string) string {
@@ -193,4 +268,15 @@ func parsePorts(s string) []Publisher {
 	}
 
 	return pubs
+}
+
+func formatContainerState(state string) string {
+	switch strings.ToLower(strings.TrimSpace(state)) {
+	case "running":
+		return ui.Green(state)
+	case "exited", "dead", "restarting":
+		return ui.Red(state)
+	default:
+		return ui.Yellow(state)
+	}
 }

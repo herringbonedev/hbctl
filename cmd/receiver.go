@@ -84,7 +84,7 @@ func receiverStartCommand() *cobra.Command {
 	cmd.Flags().StringVar(&composeFile, "compose-file", "", "Override the receiver compose file path")
 	cmd.Flags().StringVar(&ingestionKey, "ingestion-key", "", "Existing ingestion key")
 	cmd.Flags().StringVar(&ingestionKeyFile, "ingestion-key-file", "", "Path to ingestion key file")
-	cmd.Flags().BoolVar(&enterprise, "enterprise", true, "Start receiver in enterprise mode by setting HB_ENTERPRISE=true")
+	cmd.Flags().BoolVar(&enterprise, "enterprise", false, "Start receiver in enterprise mode by setting HB_ENTERPRISE=true")
 	return cmd
 }
 

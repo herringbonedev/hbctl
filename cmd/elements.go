@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/herringbonedev/hbctl/internal/ui"
 	"github.com/herringbonedev/hbctl/internal/units"
 	"github.com/spf13/cobra"
 )
@@ -48,10 +49,12 @@ func elementsCommand() *cobra.Command {
 			}
 
 			if wide {
-				fmt.Fprintf(cmd.OutOrStdout(), "%-3s %-28s %-18s %s\n", "#", "NAME", "UNIT", "DESCRIPTION")
+				ui.FHeader(cmd.OutOrStdout(), "Herringbone elements")
+				rows := make([][]string, 0, len(out))
 				for index, element := range out {
-					fmt.Fprintf(cmd.OutOrStdout(), "%-3d %-28s %-18s %s\n", index+1, element.Name, element.Unit, element.Description)
+					rows = append(rows, []string{fmt.Sprintf("%d", index+1), element.Name, element.Unit, element.Description})
 				}
+				ui.FTable(cmd.OutOrStdout(), []string{"#", "NAME", "UNIT", "DESCRIPTION"}, rows)
 				return nil
 			}
 
@@ -66,12 +69,14 @@ func elementsCommand() *cobra.Command {
 			}
 			sort.Strings(unitNames)
 
+			ui.FHeader(cmd.OutOrStdout(), "Herringbone elements")
 			for _, unitName := range unitNames {
-				fmt.Fprintf(cmd.OutOrStdout(), "[%s]\n", unitName)
+				ui.FSection(cmd.OutOrStdout(), unitName)
+				rows := make([][]string, 0, len(grouped[unitName]))
 				for _, element := range grouped[unitName] {
-					fmt.Fprintf(cmd.OutOrStdout(), "  %-28s %s\n", element.Name, element.Description)
+					rows = append(rows, []string{element.Name, element.Description})
 				}
-				fmt.Fprintln(cmd.OutOrStdout())
+				ui.FTable(cmd.OutOrStdout(), []string{"ELEMENT", "DESCRIPTION"}, rows)
 			}
 			return nil
 		},

@@ -12,6 +12,7 @@ func restartCommand() *cobra.Command {
 	var element string
 	var unit string
 	var all bool
+	var enterprise bool
 
 	cmd := &cobra.Command{
 		Use:   "restart",
@@ -21,10 +22,11 @@ func restartCommand() *cobra.Command {
 				return fmt.Errorf("specify --element, --unit, or --all. Full-stack restart is no longer implicit")
 			}
 			return local.Restart(local.RestartOptions{
-				Project: projectName,
-				Element: strings.TrimSpace(element),
-				Unit:    strings.TrimSpace(unit),
-				All:     all,
+				Project:    projectName,
+				Element:    strings.TrimSpace(element),
+				Unit:       strings.TrimSpace(unit),
+				All:        all,
+				Enterprise: enterprise,
 			})
 		},
 	}
@@ -32,5 +34,6 @@ func restartCommand() *cobra.Command {
 	cmd.Flags().StringVar(&element, "element", "", "Element to restart")
 	cmd.Flags().StringVar(&unit, "unit", "", "Unit to restart")
 	cmd.Flags().BoolVar(&all, "all", false, "Restart the full stack")
+	cmd.Flags().BoolVar(&enterprise, "enterprise", false, "Restart enterprise services and set HB_ENTERPRISE=true")
 	return cmd
 }

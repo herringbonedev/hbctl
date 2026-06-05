@@ -1,8 +1,9 @@
 package test
 
 import (
-	"fmt"
 	"os"
+
+	"github.com/herringbonedev/hbctl/internal/ui"
 )
 
 type RegisterFunc func(name string, fn func([]string))
@@ -13,8 +14,8 @@ func Init(register RegisterFunc) {
 
 func testCmd(args []string) {
 	if len(args) < 1 {
-		fmt.Fprintln(os.Stderr, "Usage: hbctl test <target>")
-		fmt.Fprintln(os.Stderr, "Available targets: compose")
+		ui.FError(os.Stderr, "Usage: hbctl test <target>")
+		ui.FInfo(os.Stderr, "Available targets: compose")
 		os.Exit(1)
 	}
 
@@ -22,7 +23,7 @@ func testCmd(args []string) {
 	case "compose":
 		testCompose()
 	default:
-		fmt.Fprintln(os.Stderr, "Unknown test target:", args[0])
+		ui.FError(os.Stderr, "Unknown test target: %s", args[0])
 		os.Exit(1)
 	}
 }

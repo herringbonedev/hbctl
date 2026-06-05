@@ -11,10 +11,10 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"text/tabwriter"
 
 	"github.com/herringbonedev/hbctl/internal/docker"
 	"github.com/herringbonedev/hbctl/internal/secrets"
+	"github.com/herringbonedev/hbctl/internal/ui"
 )
 
 const defaultReceiverPortStart = 9000
@@ -119,7 +119,9 @@ func StartReceiver(opts ReceiverStartOptions) error {
 	}
 
 	project := receiverProjectName(opts.Project, opts.ReceiverType, hostPort)
-	fmt.Printf("[hbctl] Starting %s receiver on host port %d using compose project %s\n", strings.ToUpper(strings.TrimSpace(opts.ReceiverType)), hostPort, project)
+	ui.Header("Herringbone receiver")
+	ui.KeyValues([][2]string{{"type", strings.ToUpper(strings.TrimSpace(opts.ReceiverType))}, {"host port", strconv.Itoa(hostPort)}, {"compose project", project}})
+	ui.Step("Starting receiver")
 	return docker.ComposeWithEnv(env,
 		"-p", project,
 		"-f", composeFile,
@@ -151,7 +153,9 @@ func StopReceiver(opts ReceiverStopOptions) error {
 	env["HOST_PORT"] = strconv.Itoa(instance.HostPort)
 	env["CONTAINER_PORT"] = strconv.Itoa(containerPort)
 
-	fmt.Printf("[hbctl] Stopping %s receiver on host port %d\n", strings.ToUpper(instance.ReceiverType), instance.HostPort)
+	ui.Header("Herringbone receiver")
+	ui.KeyValues([][2]string{{"type", strings.ToUpper(instance.ReceiverType)}, {"host port", strconv.Itoa(instance.HostPort)}})
+	ui.Step("Stopping receiver")
 	return docker.ComposeWithEnv(env,
 		"-p", instance.Project,
 		"-f", composeFile,
@@ -175,7 +179,9 @@ func RestartReceiver(opts ReceiverRestartOptions) error {
 		return err
 	}
 
-	fmt.Printf("[hbctl] Restarting %s receiver on host port %d\n", strings.ToUpper(instance.ReceiverType), instance.HostPort)
+	ui.Header("Herringbone receiver")
+	ui.KeyValues([][2]string{{"type", strings.ToUpper(instance.ReceiverType)}, {"host port", strconv.Itoa(instance.HostPort)}})
+	ui.Step("Restarting receiver")
 	return docker.ComposeWithEnv(env,
 		"-p", instance.Project,
 		"-f", composeFile,
@@ -255,21 +261,23 @@ func ListReceivers(opts ReceiverListOptions) error {
 		return enc.Encode(instances)
 	}
 
-	writer := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(writer, "TYPE\tMODE\tHOST PORT\tCONTAINER PORT\tSTATE\tSTATUS\tFORWARD ROUTE\tNAME")
+	ui.Header("Herringbone receivers")
+	ui.KeyValues([][2]string{{"project", opts.Project}, {"receivers", strconv.Itoa(len(instances))}})
+	tableRows := make([][]string, 0, len(instances))
 	for _, instance := range instances {
-		fmt.Fprintf(writer, "%s\t%s\t%d\t%d\t%s\t%s\t%s\t%s\n",
+		tableRows = append(tableRows, []string{
 			instance.ReceiverType,
 			blankDefault(instance.Mode, "local"),
-			instance.HostPort,
-			instance.ContainerPort,
-			instance.State,
+			strconv.Itoa(instance.HostPort),
+			strconv.Itoa(instance.ContainerPort),
+			formatContainerState(instance.State),
 			instance.Status,
 			instance.ForwardRoute,
 			instance.Name,
-		)
+		})
 	}
-	return writer.Flush()
+	ui.Table([]string{"TYPE", "MODE", "HOST", "CONTAINER", "STATE", "STATUS", "FORWARD", "NAME"}, tableRows)
+	return nil
 }
 
 func resolveReceiverComposeFile(override string) (string, error) {
@@ -355,21 +363,13 @@ func receiverLifecycleEnvironment(receiverType, mode string, hostPort, container
 		containerPort = 7004
 	}
 
-	env := map[string]string{
-		"HOST_PORT":      strconv.Itoa(hostPort),
-		"CONTAINER_PORT": strconv.Itoa(containerPort),
-		"RECEIVER_TYPE":  receiverType,
-		"RECEIVER_MODE":  mode,
-		"FORWARD_ROUTE":  forwardRoute,
-		"INGESTION_KEY":  ingestionKey,
-		"HB_ENTERPRISE":  fmt.Sprintf("%t", enterprise),
-		"MONGO_HOST":     "",
-		"MONGO_PORT":     "",
-		"MONGO_USER":     "",
-		"MONGO_PASS":     "",
-		"DB_NAME":        "",
-		"AUTH_DB":        "",
-	}
+	env := blankLifecycleEnv(enterprise)
+	env["HOST_PORT"] = strconv.Itoa(hostPort)
+	env["CONTAINER_PORT"] = strconv.Itoa(containerPort)
+	env["RECEIVER_TYPE"] = receiverType
+	env["RECEIVER_MODE"] = mode
+	env["FORWARD_ROUTE"] = forwardRoute
+	env["INGESTION_KEY"] = ingestionKey
 
 	switch mode {
 	case "forward":

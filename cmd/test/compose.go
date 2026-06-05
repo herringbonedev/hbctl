@@ -5,24 +5,26 @@ import (
 	"os"
 
 	"github.com/herringbonedev/hbctl/internal/secrets"
+	"github.com/herringbonedev/hbctl/internal/ui"
 )
 
 func testCompose() {
 	sec, err := secrets.LoadMongo()
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "Failed to load MongoDB secret:", err)
+		ui.FError(os.Stderr, "Failed to load MongoDB secret: %v", err)
 		os.Exit(1)
 	}
 
-	fmt.Println("[hbctl] Loaded MongoDB secret")
-	fmt.Printf("MONGO_USER=%s\n", sec.User)
-	fmt.Printf("MONGO_PASSWORD=%s\n", mask(sec.Password))
-	fmt.Printf("MONGO_HOST=%s\n", sec.Host)
-	fmt.Printf("MONGO_PORT=%d\n", sec.Port)
-	fmt.Println()
-
-	fmt.Println("Mock command:")
-	fmt.Println("docker compose up -d")
+	ui.Header("hbctl compose test")
+	ui.Success("Loaded MongoDB secret")
+	ui.KeyValues([][2]string{
+		{"MONGO_USER", sec.User},
+		{"MONGO_PASSWORD", mask(sec.Password)},
+		{"MONGO_HOST", sec.Host},
+		{"MONGO_PORT", fmt.Sprintf("%d", sec.Port)},
+	})
+	ui.Section("Mock command")
+	ui.Command("docker compose up -d")
 }
 
 func mask(s string) string {

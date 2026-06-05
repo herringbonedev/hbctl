@@ -2,9 +2,9 @@ package cmd
 
 import (
 	"encoding/json"
-	"fmt"
 	"sort"
 
+	"github.com/herringbonedev/hbctl/internal/ui"
 	"github.com/herringbonedev/hbctl/internal/units"
 	"github.com/spf13/cobra"
 )
@@ -28,9 +28,12 @@ func unitsCommand() *cobra.Command {
 				return enc.Encode(names)
 			}
 
+			ui.FHeader(cmd.OutOrStdout(), "Herringbone units")
+			rows := make([][]string, 0, len(names))
 			for _, name := range names {
-				fmt.Fprintln(cmd.OutOrStdout(), name)
+				rows = append(rows, []string{name})
 			}
+			ui.FTable(cmd.OutOrStdout(), []string{"UNIT"}, rows)
 			return nil
 		},
 	}

@@ -4,12 +4,14 @@ import (
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"golang.org/x/crypto/scrypt"
 	"golang.org/x/term"
@@ -21,13 +23,34 @@ const (
 )
 
 var cachedPassphrase string
+var baseDirOverride string
 
-func secretsPath() (string, error) {
+func SetBaseDir(dir string) {
+	baseDirOverride = strings.TrimSpace(dir)
+}
+
+func HasBaseDirOverride() bool {
+	return strings.TrimSpace(baseDirOverride) != ""
+}
+
+func BaseDir() (string, error) {
+	if baseDirOverride != "" {
+		return filepath.Abs(baseDirOverride)
+	}
+
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(home, ".hbctl", "secrets.enc"), nil
+	return filepath.Join(home, ".hbctl"), nil
+}
+
+func secretsPath() (string, error) {
+	dir, err := BaseDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "secrets.enc"), nil
 }
 
 func SaveMongo(secret *MongoSecret) error {
@@ -242,91 +265,256 @@ func getPassphrase(confirm bool) (string, error) {
 	return cachedPassphrase, nil
 }
 
+func SaveAuthToken(secret *AuthToken) error {
+	path, err := secretsPath()
+	if err != nil {
+		return err
+	}
+
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		return err
+	}
+
+	firstTime := false
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		firstTime = true
+	}
+
+	pass, err := getPassphrase(firstTime)
+	if err != nil {
+		return err
+	}
+
+	var store Store
+
+	if !firstTime {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		plain, err := decrypt(data, pass)
+		if err != nil {
+			return errors.New("failed to decrypt secrets (wrong passphrase?)")
+		}
+		_ = json.Unmarshal(plain, &store)
+	}
+
+	store.AuthToken = secret
+
+	plain, err := json.MarshalIndent(store, "", "  ")
+	if err != nil {
+		return err
+	}
+
+	enc, err := encrypt(plain, pass)
+	if err != nil {
+		return err
+	}
+
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, enc, 0600); err != nil {
+		return err
+	}
+	return os.Rename(tmp, path)
+}
+
+func LoadAuthToken() (*AuthToken, error) {
+	path, err := secretsPath()
+	if err != nil {
+		return nil, err
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+
+	pass, err := getPassphrase(false)
+	if err != nil {
+		return nil, err
+	}
+
+	plain, err := decrypt(data, pass)
+	if err != nil {
+		return nil, errors.New("failed to decrypt secrets (wrong passphrase?)")
+	}
+
+	var store Store
+	if err := json.Unmarshal(plain, &store); err != nil {
+		return nil, err
+	}
+
+	if store.AuthToken == nil || strings.TrimSpace(store.AuthToken.AccessToken) == "" {
+		return nil, errors.New("no auth token stored")
+	}
+
+	return store.AuthToken, nil
+}
+
 func SaveServiceKey(secret *ServiceKey) error {
-    path, err := secretsPath()
-    if err != nil {
-        return err
-    }
+	path, err := secretsPath()
+	if err != nil {
+		return err
+	}
 
-    dir := filepath.Dir(path)
-    if err := os.MkdirAll(dir, 0700); err != nil {
-        return err
-    }
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		return err
+	}
 
-    firstTime := false
-    if _, err := os.Stat(path); os.IsNotExist(err) {
-        firstTime = true
-    }
+	firstTime := false
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		firstTime = true
+	}
 
-    pass, err := getPassphrase(firstTime)
-    if err != nil {
-        return err
-    }
+	pass, err := getPassphrase(firstTime)
+	if err != nil {
+		return err
+	}
 
-    var store Store
+	var store Store
 
-    if !firstTime {
-        data, err := os.ReadFile(path)
-        if err != nil {
-            return err
-        }
-        plain, err := decrypt(data, pass)
-        if err != nil {
-            return errors.New("failed to decrypt secrets (wrong passphrase?)")
-        }
-        _ = json.Unmarshal(plain, &store)
-    }
+	if !firstTime {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		plain, err := decrypt(data, pass)
+		if err != nil {
+			return errors.New("failed to decrypt secrets (wrong passphrase?)")
+		}
+		_ = json.Unmarshal(plain, &store)
+	}
 
-    store.ServiceKey = secret
+	store.ServiceKey = secret
 
-    plain, err := json.MarshalIndent(store, "", "  ")
-    if err != nil {
-        return err
-    }
+	plain, err := json.MarshalIndent(store, "", "  ")
+	if err != nil {
+		return err
+	}
 
-    enc, err := encrypt(plain, pass)
-    if err != nil {
-        return err
-    }
+	enc, err := encrypt(plain, pass)
+	if err != nil {
+		return err
+	}
 
-    tmp := path + ".tmp"
-    if err := os.WriteFile(tmp, enc, 0600); err != nil {
-        return err
-    }
-    return os.Rename(tmp, path)
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, enc, 0600); err != nil {
+		return err
+	}
+	return os.Rename(tmp, path)
 }
 
 func LoadServiceKey() (*ServiceKey, error) {
-    path, err := secretsPath()
-    if err != nil {
-        return nil, err
-    }
+	path, err := secretsPath()
+	if err != nil {
+		return nil, err
+	}
 
-    data, err := os.ReadFile(path)
-    if err != nil {
-        return nil, err
-    }
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
 
-    pass, err := getPassphrase(false)
-    if err != nil {
-        return nil, err
-    }
+	pass, err := getPassphrase(false)
+	if err != nil {
+		return nil, err
+	}
 
-    plain, err := decrypt(data, pass)
-    if err != nil {
-        return nil, errors.New("failed to decrypt secrets (wrong passphrase?)")
-    }
+	plain, err := decrypt(data, pass)
+	if err != nil {
+		return nil, errors.New("failed to decrypt secrets (wrong passphrase?)")
+	}
 
-    var store Store
-    if err := json.Unmarshal(plain, &store); err != nil {
-        return nil, err
-    }
+	var store Store
+	if err := json.Unmarshal(plain, &store); err != nil {
+		return nil, err
+	}
 
-    if store.ServiceKey == nil {
-        return nil, errors.New("no service key stored")
-    }
+	if store.ServiceKey == nil {
+		return nil, errors.New("no service key stored")
+	}
 
-    return store.ServiceKey, nil
+	return store.ServiceKey, nil
+}
+
+func EnsureMongoRootPassword() (string, error) {
+	path, err := secretsPath()
+	if err != nil {
+		return "", err
+	}
+
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		return "", err
+	}
+
+	firstTime := false
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		firstTime = true
+	}
+
+	pass, err := getPassphrase(firstTime)
+	if err != nil {
+		return "", err
+	}
+
+	var store Store
+	if !firstTime {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return "", err
+		}
+		plain, err := decrypt(data, pass)
+		if err != nil {
+			return "", errors.New("failed to decrypt secrets (wrong passphrase?)")
+		}
+		if err := json.Unmarshal(plain, &store); err != nil {
+			return "", err
+		}
+	}
+
+	if strings.TrimSpace(store.MongoRootPassword) != "" {
+		return store.MongoRootPassword, nil
+	}
+
+	rootPass, err := randomSecret(32)
+	if err != nil {
+		return "", err
+	}
+	store.MongoRootPassword = rootPass
+
+	plain, err := json.MarshalIndent(store, "", "  ")
+	if err != nil {
+		return "", err
+	}
+
+	enc, err := encrypt(plain, pass)
+	if err != nil {
+		return "", err
+	}
+
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, enc, 0600); err != nil {
+		return "", err
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		return "", err
+	}
+
+	return rootPass, nil
+}
+
+func randomSecret(n int) (string, error) {
+	if n <= 0 {
+		n = 32
+	}
+	b := make([]byte, n)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	return base64.RawURLEncoding.EncodeToString(b), nil
 }
 
 /* ---------- crypto ---------- */

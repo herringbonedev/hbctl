@@ -3,6 +3,7 @@ package mongo
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"time"
 
 	mongodrv "go.mongodb.org/mongo-driver/mongo"
@@ -32,8 +33,22 @@ func WaitForConnect(uri string, timeout time.Duration) error {
 			return nil
 		}
 		if time.Now().After(deadline) {
-			return fmt.Errorf("timeout waiting for MongoDB at %s", uri)
+			return fmt.Errorf("timeout waiting for MongoDB at %s", redactMongoURI(uri))
 		}
 		time.Sleep(2 * time.Second)
 	}
+}
+
+func redactMongoURI(uri string) string {
+	u, err := url.Parse(uri)
+	if err != nil {
+		return "configured endpoint"
+	}
+	if u.User != nil {
+		username := u.User.Username()
+		if username != "" {
+			u.User = url.User(username)
+		}
+	}
+	return u.String()
 }
