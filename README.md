@@ -1,659 +1,643 @@
 # hbctl
 
-**hbctl** is the control-plane CLI for the Herringbone platform.
+**hbctl** is the local control CLI for Herringbone Docker Compose deployments.
 
-It is used to discover, start, stop, restart, and inspect Herringbone services locally using **Docker Compose**, while managing encrypted credentials and enforcing the platform’s **unit / element** model.
+It starts, stops, upgrades, inspects, and bootstraps Herringbone services while protecting local MongoDB data and managing runtime secrets.
 
-hbctl is intentionally opinionated and is the **only supported way** to operate Herringbone locally.
-
-## Repository Relationship
-
-hbctl lives in its **own repository** and operates against a **separate Herringbone checkout**.
-
-Recommended layout:
+Run hbctl from the Herringbone `docker/` directory, where the `compose.*.yml` files and `init-mongo.js` live.
 
 ```text
-~/src/herringbone/
-  hbctl/
-  herringbone/
+Herringbone/
+  docker/
+    compose.*.yml
+    init-mongo.js
+    secrets/
 ```
 
-hbctl must be **executed from the Herringbone repository ./docker/ directory**, where `compose.*.yml` files live.
+## What hbctl Manages
 
-## Core Concepts
+hbctl manages a local Herringbone stack made of Docker Compose services.
 
-### Units
-A **unit** is a logical subsystem of the Herringbone platform.
+It handles:
 
-Examples:
-- `auth`
-- `parser`
-- `detection`
-- `incidents`
-- `search`
-- `logs`
+- protected core services: proxy, MongoDB, and auth
+- application services: parser, search, detection, incidents, operations center, and related services
+- service account token bootstrap
+- encrypted local hbctl secrets
+- common MongoDB seed/init replay
+- safe upgrades without deleting Docker volumes
+- dedicated receiver lifecycle outside the main stack
 
-### Elements
-An **element** is a single deployable service inside a unit.
+Receivers are intentionally managed separately from `start --all` so each receiver can keep its own project, protocol, and port.
 
-Examples:
-- `herringbone-auth`
-- `fingerprint-scoreset`
-- `fingerprint-identifier`
-- `parser-enrichment`
-- `parser-extractor`
-- `detectionengine-detector`
-- `operations-center`
+## Build and Install
 
-hbctl enforces this model consistently across all commands.
-
-## Building hbctl
+Build locally:
 
 ```bash
-go build -o hbctl
+go build -o hbctl .
 ```
 
-(Optional) install globally:
+Install globally:
 
 ```bash
-sudo mv hbctl /usr/local/bin/
+sudo cp hbctl /usr/local/bin/hbctl
 ```
 
-Verify:
+Check the installed version:
 
 ```bash
 hbctl version
 ```
 
-## Encrypted Secrets
-
-hbctl stores encrypted credentials locally at:
+`hbctl version` prints the alpha version and an opaque revision value:
 
 ```text
-~/.hbctl/secrets.enc
+version  alpha-0.6.0
+rev      rev-a3f9c21b7e04
 ```
 
-You can move hbctl-managed secrets to a separate location with the global
-`--secrets` option:
+## Where to Run hbctl
+
+Run hbctl from the Herringbone `docker/` directory:
 
 ```bash
-hbctl --secrets /secure/herringbone/secrets login mongodb \
-  --user herringbone \
-  --password 'change-me' \
-  --host localhost
-
-hbctl --secrets /secure/herringbone/secrets start --all
+cd ~/Projects/Herringbone/docker
+hbctl status
 ```
 
-When `--secrets` is used:
-
-- encrypted hbctl credentials are stored at `<path>/secrets.enc`
-- auth runtime secret files are written under `<path>/runtime`
-- compose environment variables are exported for compose files that support a
-  relocated secrets directory:
-  - `HBCTL_SECRETS_DIR`
-  - `HB_SECRETS_DIR`
-  - `HERRINGBONE_SECRETS_DIR`
-  - `RUNTIME_SECRETS_DIR`
-
-When `--secrets` is not used, hbctl keeps the existing behavior.
-
-Authenticate to the Herringbone auth service and store the returned user token in the encrypted hbctl secrets file:
+For enterprise:
 
 ```bash
-hbctl login -u admin@example.com -p 'your-password'
+cd ~/Projects/Herringbone-enterprise/docker
+hbctl status
 ```
 
-By default hbctl tries the proxied auth login route first and then the direct auth microservice login route. You can override the base URL or login path when needed:
+hbctl expects the compose files for the current deployment to be in the current directory.
 
-```bash
-hbctl login -u admin@example.com -p 'your-password' --auth-url http://localhost:8080
-hbctl login -u admin@example.com -p 'your-password' --auth-url http://localhost:7001 --login-path /login
-```
+## Core vs Enterprise
 
-The stored user token is saved under `auth_token` inside `secrets.enc`. hbctl stores the token, login email, auth URL, login path, token type, and save timestamp. The token is not printed to the terminal.
+hbctl supports two modes.
 
-Other secrets are written using:
+### Core / Free
 
-```bash
-hbctl login <backend>
-```
-
-Supported backends:
-- `mongodb`
-- `jwtsecret`
-- `servicekey`
-
-Secrets are decrypted only at runtime.
-
-## Release Listing and Upgrade Staging
-
-List published Herringbone releases from GitHub:
-
-```bash
-hbctl upgrade --list-releases
-```
-
-Limit or machine-read the output:
-
-```bash
-hbctl upgrade --list-releases --limit 5
-hbctl upgrade --list-releases --json
-```
-
-Stage a release into the current compose directory without restarting services:
-
-```bash
-hbctl upgrade --release-tag <tag>
-```
-
-This downloads the release, archives the current compose directory under `.hbctl/archive/<tag>-<timestamp>`, preserves `secrets/`, and installs the release files.
-
-Stage and immediately apply the release safely:
-
-```bash
-hbctl upgrade --release-tag <tag> --now
-```
-
-The `--now` path stages the release, replays `init-mongo.js`, applies enterprise platform seed only when `--enterprise` is also supplied, and refreshes application services without removing Docker volumes. If GitHub rate-limits anonymous requests, set `GITHUB_TOKEN` in the environment before running release commands.
-
-## Common Commands
-
-Discover platform components:
-
-```bash
-hbctl units
-hbctl elements
-```
-
-Start the full platform:
+Core mode is the default:
 
 ```bash
 hbctl start --all
 ```
 
-`hbctl start --all` now behaves as an idempotent ensure operation:
+Core mode:
 
-- if an existing proxy container is present, hbctl starts/reuses it; otherwise hbctl creates proxy
-- if an existing MongoDB container or volume is present, hbctl re-attaches safely; otherwise hbctl creates MongoDB
-- if an existing auth container is present, hbctl starts/reuses it; otherwise hbctl creates core auth
-- enterprise services are skipped unless `--enterprise` is supplied
-- before application services start, hbctl ensures every required service account token file exists under `secrets/runtime`
-- `--token-create` force-refreshes service tokens, but missing token files are created automatically because Docker bind mounts require them
-- after protected core is ready, hbctl creates or starts the remaining application services
-- if a dedicated receiver already exists, hbctl reuses it instead of creating a second receiver on the same port
+- starts the core/free services
+- replays the common `init-mongo.js`
+- ensures default org, scopes, and indexes
+- does not create enterprise platform org data
+- does not start enterprise-only services
 
-Start the enterprise stack explicitly:
+### Enterprise
+
+Enterprise mode is enabled explicitly:
 
 ```bash
 hbctl start --all --enterprise
 ```
 
+Enterprise mode:
 
-Start a single unit:
+- includes enterprise services
+- sets enterprise runtime environment
+- bootstraps enterprise service account tokens
+- replays the common `init-mongo.js`
+- ensures enterprise platform/org seed data after the common init
 
-```bash
-hbctl start --unit parser
-```
-
-Start a single element:
-
-```bash
-hbctl start --element parser-extractor
-```
-
-Enterprise services require `--enterprise`:
-
-```bash
-hbctl start --element fingerprint-scoreset --enterprise
-hbctl start --element parser-enrichment --enterprise
-```
-
-The `auth` alias always targets the real compose service `herringbone-auth`; `--enterprise` sets enterprise mode without changing the service name.
-
-Check active status:
-
-```bash
-hbctl status
-```
-
-The default status view is intentionally compact: service, state, replicas, and ports. Include stopped/exited containers only when you explicitly want the full Docker history view:
-
-```bash
-hbctl status --all
-```
-
-View logs:
-
-```bash
-hbctl logs --unit parser --follow
-```
-
-Stop application services without touching protected core infrastructure:
-
-```bash
-hbctl stop --all
-```
-
-`hbctl stop --all` now leaves MongoDB, proxy, and auth running by default. Those services are protected because accidentally stopping them can break access, bootstrap, or database continuity. Stop them only when you explicitly ask for them:
-
-```bash
-hbctl stop --proxy
-hbctl stop --auth
-hbctl stop --mongo
-```
-
-`hbctl stop` no longer defaults to the full stack. You must specify `--all`, `--unit`, `--element`, `--proxy`, `--auth`, or `--mongo`. Stopped containers are pruned by default with `docker rm` so `hbctl status` stays clean. Docker volumes are never removed. Use `--keep-containers` if you want the old behavior and prefer to leave exited containers around for inspection.
-
-Restart a service:
-
-```bash
-hbctl restart --element parser-extractor
-```
-
-Run the safe local refresh without downloading a release:
-
-```bash
-hbctl upgrade --all
-```
-
-Upgrade one service only:
-
-```bash
-hbctl upgrade --element parser-extractor
-```
-
-Upgrade enterprise services explicitly:
-
-```bash
-hbctl upgrade --element fingerprint-identifier --enterprise
-hbctl upgrade --all --enterprise
-```
-
-
-## Enterprise Fingerprint Components
-
-This version of hbctl knows about the enterprise fingerprint services:
+Enterprise mode does **not** rename Docker Compose services. Compose service names stay the names in the compose files, such as:
 
 ```text
+herringbone-auth
 fingerprint-scoreset
 fingerprint-identifier
 parser-enrichment
 ```
 
-Enterprise components are not started by default. Their compose service names do not use a `-e` suffix. Use `--enterprise` when starting or upgrading them:
+## Secrets
 
-hbctl accepts old `-e` typed aliases for compatibility, but it resolves them to the real compose service names before calling Docker Compose. It also keeps the original enterprise auth-side service identities (`fingerprint-scoreset-e`, `fingerprint-identifier-e`, `parser-enrichment-e`) when bootstrapping service accounts, because the containers still advertise those names internally.
-
-```bash
-hbctl start --unit fingerprint --enterprise
-hbctl start --all --enterprise
-```
-
-
-
-The expected flow is:
+hbctl stores encrypted CLI-managed secrets in:
 
 ```text
-fingerprint-scoreset -> MongoDB score_cards
-fingerprint-identifier -> reads/caches score_cards
-parser-enrichment -> calls fingerprint-identifier
+~/.hbctl/secrets.enc
 ```
 
-## Safer Lifecycle Behavior
+Runtime secret files used by Docker Compose are written under:
 
-`hbctl stop` and `hbctl restart` now require explicit scope. This prevents accidentally affecting the whole stack when you meant to operate on one element.
-
-```bash
-hbctl stop --element parser-enrichment
-hbctl stop --unit fingerprint
-hbctl stop --all
+```text
+secrets/runtime/
 ```
 
-Protected core services are never included in `hbctl stop --all`:
+Examples include:
 
-```bash
-hbctl stop --proxy
-hbctl stop --auth
-hbctl stop --mongo
+```text
+bootstrap_token
+jwt_secret
+service_jwt_private_key
+service_jwt_public_key
+herringbone_service_token
+parser_extractor_service_token
+fingerprint_scoreset_service_token
 ```
 
-After `hbctl stop --all`, `hbctl status` should stay clean because application containers are stopped and then pruned. Protected core containers may still show as running, which is intentional. Dedicated receiver projects are discovered by name/project, stopped, and pruned as application containers. Use `hbctl status --all` only when you intentionally want to inspect stopped containers that were kept or protected.
-
-
-Prune any old stopped Herringbone containers left behind by previous alpha builds:
+Use a separate secrets location with the global `--secrets` option:
 
 ```bash
-hbctl prune
+hbctl --secrets /secure/herringbone/secrets start --all
 ```
 
-This removes containers only. It never removes Docker volumes. Stopped MongoDB, proxy, and auth containers are skipped unless you explicitly include protected core cleanup:
+When `--secrets` is used:
+
+- encrypted hbctl secrets are stored at `<path>/secrets.enc`
+- runtime secret files are written under `<path>/runtime`
+- compose-compatible secrets directory environment variables are exported
+
+## Login and Stored User Token
+
+Log in to the Herringbone auth service and store the returned user token in `secrets.enc`:
 
 ```bash
-hbctl prune --core
+hbctl login -u admin@example.com -p 'your-password'
 ```
 
-Service account token files are now lifecycle-managed. When `hbctl start --all` or
-`hbctl start --all --enterprise` is about to start services that bind-mount service
-tokens, hbctl checks `secrets/runtime` and creates any missing token files before
-Docker Compose starts the service. This prevents missing bind-source errors such as
-`fingerprint_scoreset_service_token` not existing.
-
-Use `--token-create` when you intentionally want to refresh service tokens even if
-the files already exist:
+Override the auth endpoint if needed:
 
 ```bash
-hbctl start --all --token-create
-hbctl start --all --enterprise --token-create
-hbctl start --element parser-extractor --token-create
+hbctl login -u admin@example.com -p 'your-password' \
+  --auth-url http://localhost:7001 \
+  --login-path /login
 ```
 
-The old `--no-token-create` flag is hidden and ignored for compatibility.
+The token is saved under `auth_token` and is not printed to the terminal.
 
-## MongoDB Protection
-
-hbctl v0.6.0 treats MongoDB as protected infrastructure.
-
-- `hbctl upgrade --all` does **not** recreate MongoDB.
-- `hbctl upgrade --element mongodb` is refused by default.
-- `hbctl stop --all` stops application containers only.
-- `hbctl stop --all` leaves MongoDB, proxy, and auth running unless you explicitly pass `--mongo`, `--proxy`, or `--auth`.
-- `hbctl stop --all` discovers dedicated receiver projects and other Herringbone-owned application containers that are not part of the main compose project.
-- `hbctl stop --all --down` is treated as a safe stop and does not remove containers or volumes.
-- hbctl stores a stable MongoDB root bootstrap secret in the encrypted hbctl
-  secrets file for new local deployments.
-- On start, hbctl first checks whether the app MongoDB credentials already work.
-  If the DB was merely stopped, it starts MongoDB with `--no-recreate` and waits
-  for the existing app user to authenticate.
-- If app auth does not work and root auth does not work, hbctl refuses to
-  recreate or remove MongoDB data. Fix the stored credentials or recover the
-  existing root password instead of deleting the volume.
-
-This is the intended stop/start flow:
+A useful follow-up command is:
 
 ```bash
-hbctl stop --all
+hbctl whoami
+```
+
+Enterprise context:
+
+```bash
+hbctl whoami --enterprise
+```
+
+JSON output:
+
+```bash
+hbctl whoami --json
+```
+
+## Start
+
+Start or repair the local stack:
+
+```bash
 hbctl start --all
 ```
 
-That flow should re-attach to the existing Docker volume and existing MongoDB
-data. If stopped application containers were pruned, `hbctl start --all` creates
-them again from the compose files. If a dedicated receiver still exists, hbctl
-reuses that receiver instead of creating a duplicate receiver that conflicts on
-the same host port.
+Enterprise:
 
-## Clean Platform Upgrades
+```bash
+hbctl start --all --enterprise
+```
 
-Use `upgrade` instead of `stop` + `start` when refreshing images or recreating services.
+`start --all` is an idempotent ensure operation:
+
+1. Reuse or create proxy.
+2. Reuse or create MongoDB without deleting volumes.
+3. Reuse or create auth.
+4. Replay the common `init-mongo.js`.
+5. In enterprise mode only, ensure enterprise platform/org seed data.
+6. Ensure required service account token files exist.
+7. Start application services.
+8. Leave receivers alone.
+
+Start a unit:
+
+```bash
+hbctl start --unit parser
+```
+
+Start one element:
+
+```bash
+hbctl start --element parser-extractor
+```
+
+Start an enterprise element:
+
+```bash
+hbctl start --element fingerprint-identifier --enterprise
+```
+
+## Stop
+
+Stop application services:
+
+```bash
+hbctl stop --all
+```
+
+By default, this protects the core infrastructure:
+
+- MongoDB
+- proxy
+- auth
+
+Stop protected services only when explicitly requested:
+
+```bash
+hbctl stop --mongo
+hbctl stop --proxy
+hbctl stop --auth
+```
+
+`stop --all` stops and prunes application containers so `hbctl status` stays clean. It does not remove Docker volumes.
+
+Keep stopped containers for debugging:
+
+```bash
+hbctl stop --all --keep-containers
+```
+
+## Status
+
+Show a compact status view:
+
+```bash
+hbctl status
+```
+
+The default view is intentionally small:
+
+```text
+SERVICE                  STATE     REPLICAS   PORTS
+herringbone-auth         running   1/1        7001
+herringbone-search       running   1/1        7014
+parser-extractor         running   3/3
+```
+
+Include stopped/exited containers only when needed:
+
+```bash
+hbctl status --all
+```
+
+Machine-readable output:
+
+```bash
+hbctl status --json
+```
+
+## Logs
+
+View logs for a unit:
+
+```bash
+hbctl logs --unit parser
+```
+
+Follow logs:
+
+```bash
+hbctl logs --unit parser --follow
+```
+
+View logs for one element:
+
+```bash
+hbctl logs --element parser-extractor --follow
+```
+
+## Receivers
+
+Receivers are managed separately from the main stack.
+
+Start a UDP receiver on port 7004:
+
+```bash
+hbctl receiver start --type udp --port 7004
+```
+
+Enterprise receiver:
+
+```bash
+hbctl receiver start --type udp --port 7004 --enterprise
+```
+
+List receivers:
+
+```bash
+hbctl receiver list
+```
+
+Follow receiver logs:
+
+```bash
+hbctl receiver logs --type udp --port 7004 --follow
+```
+
+Stop a receiver:
+
+```bash
+hbctl receiver stop --type udp --port 7004
+```
+
+Restart a receiver:
+
+```bash
+hbctl receiver restart --type udp --port 7004
+```
+
+Receivers use dedicated Docker Compose projects so multiple receivers can run without colliding with the main stack.
+
+## Upgrade
+
+hbctl supports three upgrade workflows.
+
+### List Releases
+
+List available Herringbone releases:
+
+```bash
+hbctl upgrade --list-releases
+```
+
+Limit results:
+
+```bash
+hbctl upgrade --list-releases --limit 5
+```
+
+JSON output:
+
+```bash
+hbctl upgrade --list-releases --json
+```
+
+This only lists releases. It does not compare versions.
+
+### Stage a Release
+
+Download and stage a release without restarting services:
+
+```bash
+hbctl upgrade --release-tag <tag>
+```
+
+This performs the file upgrade only:
+
+1. Download the release.
+2. Extract it under `.hbctl/releases/`.
+3. Archive the current compose directory under `.hbctl/archive/<tag>-<timestamp>/`.
+4. Preserve:
+   - `secrets/`
+   - `secrets.enc`
+   - `.hbctl/`
+5. Install the new release files into the current directory.
+6. Do not restart services.
+
+### Stage and Apply a Release
+
+Download, stage, and immediately apply the release:
+
+```bash
+hbctl upgrade --release-tag <tag> --now
+```
+
+This performs the file upgrade, then runs the safe local upgrade.
+
+Enterprise:
+
+```bash
+hbctl upgrade --release-tag <tag> --now --enterprise
+```
+
+### Safe Local Upgrade
+
+Refresh the currently installed compose files without downloading a release:
 
 ```bash
 hbctl upgrade --all
-hbctl upgrade --unit parser
-hbctl upgrade --element fingerprint-scoreset
 ```
 
-Upgrade pulls images by default and recreates containers without running
-`compose down`. To preview the full compose plan first:
+Enterprise:
+
+```bash
+hbctl upgrade --all --enterprise
+```
+
+Upgrade one element only:
+
+```bash
+hbctl upgrade --element parser-extractor
+```
+
+Enterprise element:
+
+```bash
+hbctl upgrade --element fingerprint-identifier --enterprise
+```
+
+A safe local upgrade:
+
+1. Ensures MongoDB is reachable.
+2. Replays the common `init-mongo.js`.
+3. Runs enterprise platform/org seed only when `--enterprise` is used.
+4. Ensures required service account token files exist.
+5. Pulls images unless `--no-pull` is used.
+6. Recreates targeted app service containers.
+7. Does not run `docker compose down`.
+8. Does not remove Docker volumes.
+9. Does not manage receivers.
+
+Preview the plan:
 
 ```bash
 hbctl upgrade --all --dry-run
 ```
 
-Full-stack upgrade behavior in v0.6.0:
-
-1. Validate required core compose files: `compose.mongo.yml`,
-   `compose.proxy.yml`, and `compose.herringbone.auth.yml`.
-2. Protect MongoDB by excluding it from force-recreate operations.
-3. Discover optional compose files from the current directory.
-4. Skip optional elements whose compose files are not present.
-5. Pull and recreate each non-MongoDB service one at a time.
-6. Use `docker compose up -d --no-deps --force-recreate <service>` so dependent
-   services and volumes are not torn down.
-7. Never run `docker compose down` or remove volumes during upgrade.
-
-To skip pulling:
+Skip image pulls:
 
 ```bash
 hbctl upgrade --all --no-pull
 ```
 
-To disable forced recreation:
+## MongoDB Init Behavior
+
+hbctl replays `init-mongo.js` after MongoDB is reachable.
+
+This is intentional. Docker's native `/docker-entrypoint-initdb.d/` hook only runs on a brand-new empty MongoDB volume. hbctl replay allows existing local volumes to receive safe idempotent additions from newer releases, such as:
+
+- new scopes
+- updated scope metadata
+- default org changes
+- new indexes
+- other database add-ons
+
+Core/free mode runs the common init only.
+
+Enterprise mode runs the common init and then ensures enterprise platform/org seed data.
+
+## MongoDB Safety Rules
+
+MongoDB is protected infrastructure.
+
+hbctl does not delete MongoDB data.
+
+The following are intentionally avoided during normal lifecycle commands:
 
 ```bash
-hbctl upgrade --all --force-recreate=false
+docker compose down -v
+docker volume rm
+docker rm -v
 ```
 
-MongoDB image upgrades are intentionally manual. Back up MongoDB first, then run
-the MongoDB upgrade outside hbctl so the operator is forced to make a deliberate
-database decision.
+`hbctl stop --all` leaves MongoDB running.
 
-## Receiver Note
+`hbctl upgrade --all` does not recreate MongoDB.
 
-When starting the log ingestion receiver, a type is required:
+MongoDB upgrades should be handled deliberately by the operator after backup.
+
+## Prune
+
+Remove stopped Herringbone application containers left behind by older alpha builds:
 
 ```bash
-hbctl start --element logingestion-receiver --type UDP
+hbctl prune
 ```
 
-## Local Development Notes
+This does not remove volumes.
 
-### Refreshing images
-
-If you are rebuilding images locally and want to remove stale resources:
+Include protected core containers only when explicitly requested:
 
 ```bash
-docker system prune -f
+hbctl prune --core
 ```
 
-Then restart:
+Even with `--core`, volumes are not removed.
+
+## Common Workflows
+
+Start core/free:
+
+```bash
+hbctl start --all
+hbctl receiver start --type udp --port 7004
+hbctl status
+```
+
+Start enterprise:
+
+```bash
+hbctl start --all --enterprise
+hbctl receiver start --type udp --port 7004 --enterprise
+hbctl status
+```
+
+Upgrade core/free:
+
+```bash
+hbctl upgrade --all
+```
+
+Upgrade enterprise:
+
+```bash
+hbctl upgrade --all --enterprise
+```
+
+Stage a release and apply it later:
+
+```bash
+hbctl upgrade --list-releases
+hbctl upgrade --release-tag <tag>
+hbctl upgrade --all
+```
+
+Stage a release and apply it now:
+
+```bash
+hbctl upgrade --release-tag <tag> --now
+```
+
+Stop application services:
 
 ```bash
 hbctl stop --all
-hbctl start --all
 ```
 
-### Resetting MongoDB (local only)
+Stop everything including protected core:
 
-This **permanently deletes local MongoDB data**:
+```bash
+hbctl stop --all
+hbctl stop --auth
+hbctl stop --proxy
+hbctl stop --mongo
+```
+
+## Troubleshooting
+
+### Missing token file
+
+If Docker Compose reports a missing `secrets/runtime/*_service_token` file, run:
+
+```bash
+hbctl start --all --token-create
+```
+
+Enterprise:
+
+```bash
+hbctl start --all --enterprise --token-create
+```
+
+### Port already allocated
+
+A service with a fixed host port cannot run multiple replicas on the same host.
+
+Use one replica for fixed-port services such as a service publishing `7051:7051`.
+
+### Receiver accidentally created in the main project
+
+Receivers should be managed by `hbctl receiver`, not `start --all`.
+
+Stop the bad main-project receiver and start the dedicated one:
+
+```bash
+hbctl stop --element logingestion-receiver
+hbctl receiver start --type udp --port 7004
+```
+
+### Reset MongoDB for local development only
+
+This permanently deletes local MongoDB data:
 
 ```bash
 docker volume rm herringbone_mongo_data
 hbctl start --all
 ```
 
-## Documentation
+Do not do this on a real deployment.
 
-- Quickstart: https://github.com/herringbonedev/Herringbone/wiki/Quickstart
-- hbctl Usage: https://github.com/herringbonedev/Herringbone/wiki/hbctl
+## Environment
 
-## Philosophy
-
-hbctl exists to:
-- Make the platform operable, not magical
-- Enforce structure over convenience
-- Keep runtime logic out of services
-- Scale from local development to production-grade orchestration
-
-If something is unclear, it should be fixed in hbctl — not worked around.
-
-
-## Dedicated Receiver Control Plane
-
-hbctl can run multiple dedicated receiver instances at the same time.
-Each receiver gets its own Docker Compose project name based on type and host port.
-
-Start a local receiver with an auto-assigned port:
-
-```bash
-hbctl receiver start --type udp --mode local
-```
-
-Start a local receiver on a fixed port:
-
-```bash
-hbctl receiver start --type tcp --mode local --port 7004
-```
-
-Start a forward receiver with an existing key already in hand:
-
-```bash
-hbctl receiver start --type udp --mode forward --port 9050   --forward-route 10.0.0.25:7004   --ingestion-key-file ./ingestion.key
-```
-
-You may also pass the existing key inline:
-
-```bash
-hbctl receiver start --type udp --mode forward --port 9050   --forward-route 10.0.0.25:7004   --ingestion-key hb_ingest_existing_value
-```
-
-List dedicated receivers:
-
-```bash
-hbctl receiver list
-```
-
-Show logs for one receiver:
-
-```bash
-hbctl receiver logs --type udp --port 9050 -f
-```
-
-Restart one receiver gracefully:
-
-```bash
-hbctl receiver restart --type udp --port 9050
-```
-
-Stop one receiver:
-
-```bash
-hbctl receiver stop --type udp --port 9050
-```
-
-Notes:
-- hbctl does not mint ingestion keys for receiver forwarding. You supply the existing key value.
-- `receiver stop`, `receiver restart`, and `receiver logs` resolve the running container first, then reuse its actual runtime environment so multiple receivers and custom ports remain manageable.
-- When `--port` is omitted, hbctl allocates the first free port in the 9000-9999 range for the selected receiver protocol.
-
-
-## Pretty CLI Output
-
-hbctl v0.6.0 uses consistent operator-friendly output across lifecycle commands.
-The CLI prints clear headers, sections, key/value summaries, boxed tables, and
-separate labels for `OK`, `WARN`, `SKIP`, `INFO`, `RUN`, and `ERR` messages.
-
-Examples that now render as polished command output:
-
-```bash
-hbctl version
-hbctl status
-hbctl units
-hbctl elements --wide
-hbctl upgrade --all --dry-run
-hbctl start --all --enterprise
-hbctl receiver list
-```
-
-Disable ANSI color when scripting or writing logs:
+Disable color output:
 
 ```bash
 NO_COLOR=1 hbctl status
 HBCTL_NO_COLOR=1 hbctl upgrade --all --dry-run
 ```
 
-#### stop --all hardening note
-
-`hbctl stop --all` performs two phases:
-
-1. Best-effort compose stops for known application services.
-2. A final Docker container discovery sweep that stops every running Herringbone
-   application container that is not protected core.
-3. A safe prune pass that removes stopped application containers with `docker rm`.
-
-This means older alpha compose-file drift, missing optional elements, service-name
-changes, scaled replicas, and dedicated receiver projects cannot leave app
-containers running just because one compose stop command failed or skipped.
-MongoDB, proxy, and auth remain protected during this sweep. hbctl never removes Docker volumes during stop or prune operations.
-
-
-### MongoDB control-plane checks
-
-
-MongoDB control-plane note: service containers can still use `MONGO_HOST=mongodb`, but hbctl itself runs on the host and checks/bootstrap MongoDB through `localhost:<port>`. This prevents false `mongo root not ready` failures when the encrypted Mongo secret stores the Docker service name.
-
-
-### Version revision label
-
-`hbctl version` now includes a small `rev` field so patch-level alpha builds are easy to identify:
+Use a GitHub token for release listing or release downloads if rate-limited:
 
 ```bash
-hbctl version
+GITHUB_TOKEN=ghp_xxx hbctl upgrade --list-releases
 ```
-
-Expected output includes:
-
-```text
-version  alpha-0.6.0
-rev      rev-a3f9c21b7e04
-```
-
-This keeps the alpha version stable while still making it obvious that the service-token bootstrap patch is installed.
-
-
-### rev-20260604-compose-compat-bootstrap
-
-- Service account bootstrap uses the original auth-side enterprise service names while writing the compose-mounted runtime token filenames.
-- Enterprise-only gating is based on hbctl logical service metadata, not Docker container names.
-- Earlier `_e_service_token` files are treated as legacy read aliases and repaired into the compose-mounted filenames without `_e`.
-
-### Enterprise service naming
-
-`hbctl` does not rename compose services for enterprise mode. Compose service names stay the names present in the compose files, such as `herringbone-auth`, `fingerprint-scoreset`, `fingerprint-identifier`, and `parser-enrichment`. The `--enterprise` flag only sets enterprise-mode environment and includes enterprise compose/image-backed services during start, restart, and upgrade flows.
-
-### Receiver lifecycle note
-
-`hbctl start --all` starts the protected core and application services only. Receivers are intentionally managed separately so each receiver keeps its dedicated compose project, receiver type, and host port:
-
-```bash
-hbctl receiver start --type udp --port 7004 --enterprise
-hbctl receiver list
-hbctl receiver stop --type udp --port 7004
-```
-
-This avoids accidentally creating a `logingestion-receiver` inside the main `herringbone` compose project.
-
-
-## rev-20260604-final-compose-hbctl-fix
-
-- Replays `init-mongo.js` idempotently after MongoDB is reachable so existing volumes still receive platform org/scopes seed data.
-- Falls back to direct platform-org seeding if the Mongo init script cannot be replayed.
-- Keeps receivers out of `start --all` and removes any receiver container accidentally created in the main project.
-- Skips optional services missing from the selected compose/profile set instead of failing the whole start; proxy, MongoDB, and auth still fail loudly.
-- Keeps service-account token bootstrap based on the original auth-side identity flow while using the runtime token filenames mounted by the compose files.
-
-
-### rev-20260604-root-platform-seed
-
-- MongoDB enterprise seed replay now uses root auth inside the `mongodb` container.
-- hbctl now always performs a mandatory platform-org upsert after MongoDB is ready, so existing volumes cannot miss `organizations.slug = platform`.
-- If `init-mongo.js` replay fails, startup continues with the mandatory platform org seed instead of leaving `/platform/claim` broken.
-
-## Revision label
-
-`hbctl version` now reports an opaque revision hash instead of a descriptive patch name. Release builds inject a random `rev-<hex>` value at build time. Plain `go build` falls back to a short hash of the built binary, so the label remains non-descriptive.
-
-Example:
-
-```text
-version  alpha-0.6.0
-rev      rev-a3f9c21b7e04
-```
-
-### Core/free MongoDB seed behavior
-
-`hbctl start --all` replays the local `init-mongo.js` after MongoDB is reachable so existing MongoDB volumes still get the default org, scopes, and indexes. Enterprise-only platform/org seed data only runs when `--enterprise` is provided.
-
-
-### Upgrade Mongo seed replay
-
-`hbctl upgrade --all` and `hbctl upgrade --release-tag <tag> --now` replay the common `init-mongo.js` file before refreshing app services. This keeps existing MongoDB volumes current when releases add scopes, indexes, or default seed records. Core/free mode does not seed enterprise platform org data; `hbctl upgrade --all --enterprise` runs that enterprise seed after the common init replay.
