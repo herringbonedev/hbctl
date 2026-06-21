@@ -369,7 +369,7 @@ parser-enrichment -> calls fingerprint-identifier
 ```
 
 
-## Alpha 0.6.0 fingerprint-tuner support
+## Alpha 0.7.0 fingerprint-tuner support
 
 `hbctl` now understands the enterprise `fingerprint-tuner` element. It is part of the `fingerprint` unit and is included in enterprise full-stack lifecycle operations when `--enterprise` is used.
 
@@ -678,7 +678,7 @@ hbctl version
 Expected output includes:
 
 ```text
-version  alpha-0.6.0
+version  alpha-0.7.0
 rev      rev-a3f9c21b7e04
 ```
 
@@ -730,7 +730,7 @@ This avoids accidentally creating a `logingestion-receiver` inside the main `her
 Example:
 
 ```text
-version  alpha-0.6.0
+version  alpha-0.7.0
 rev      rev-a3f9c21b7e04
 ```
 
