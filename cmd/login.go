@@ -30,11 +30,13 @@ func loginCommand() *cobra.Command {
 	var authURL string
 	var loginPath string
 	var timeoutSeconds int
+	var enterprise bool
+	var contextName string
 
 	cmd := &cobra.Command{
 		Use:   "login",
 		Short: "Log in to Herringbone or store encrypted credentials and keys",
-		Long: "Log in to the Herringbone auth service and store the returned token in hbctl's encrypted secrets file. " +
+		Long: "Log in to the Herringbone auth service and store the returned token in the hbctl session file. " +
 			"Subcommands are also available for storing MongoDB credentials, JWT secrets, and service signing keys.",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if email == "" || password == "" {
@@ -50,33 +52,57 @@ func loginCommand() *cobra.Command {
 			}
 
 			savedAt := time.Now().UTC().Format(time.RFC3339)
-			if err := secrets.SaveAuthToken(&secrets.AuthToken{
+			authToken := &secrets.AuthToken{
 				Email:       email,
 				AccessToken: result.Token,
 				TokenType:   result.TokenType,
 				AuthURL:     result.AuthURL,
 				LoginPath:   result.Path,
 				SavedAt:     savedAt,
-			}); err != nil {
+			}
+
+			var currentContext *secrets.ContextToken
+			if enterprise {
+				ui.FStep(cmd.OutOrStdout(), "Loading enterprise contexts")
+				client := &http.Client{Timeout: time.Duration(timeoutSeconds) * time.Second}
+				contexts, err := fetchEnterpriseContexts(client, result.AuthURL, result.Token)
+				if err != nil {
+					return fmt.Errorf("login succeeded but enterprise context lookup failed: %w", err)
+				}
+				ctx, ok := selectEnterpriseContext(contexts, contextName)
+				if !ok {
+					return fmt.Errorf("login succeeded but no enterprise contexts are available for this user")
+				}
+				currentContext = contextInfoToSessionToken(ctx, authToken)
+			}
+
+			if err := secrets.SaveAuthTokenSession(authToken, enterprise, currentContext); err != nil {
 				return fmt.Errorf("failed to store auth token: %w", err)
 			}
 
-			ui.FSuccess(cmd.OutOrStdout(), "Auth token saved to encrypted hbctl secrets")
-			ui.FKeyValues(cmd.OutOrStdout(), [][2]string{
+			ui.FSuccess(cmd.OutOrStdout(), "Auth token saved to hbctl session file")
+			rows := [][2]string{
 				{"email", email},
 				{"auth url", result.AuthURL},
 				{"login path", result.Path},
+				{"enterprise", mapBool(enterprise, "true", "false")},
 				{"saved at", savedAt},
-			})
+			}
+			if currentContext != nil {
+				rows = append(rows, [2]string{"context", currentContext.Slug}, [2]string{"context id", currentContext.ContextID}, [2]string{"role", currentContext.Role})
+			}
+			ui.FKeyValues(cmd.OutOrStdout(), rows)
 			return nil
 		},
 	}
 
 	cmd.Flags().StringVarP(&email, "user", "u", "", "User email for auth login")
 	cmd.Flags().StringVarP(&password, "password", "p", "", "User password for auth login")
-	cmd.Flags().StringVar(&authURL, "auth-url", defaultAuthURL(), "Auth service base URL")
+	cmd.Flags().StringVar(&authURL, "auth-url", "", "Auth service base URL; defaults to saved hbctl server or http://localhost:8080")
 	cmd.Flags().StringVar(&loginPath, "login-path", "", "Login path to call; defaults to trying proxied and direct login paths")
 	cmd.Flags().IntVar(&timeoutSeconds, "timeout", 10, "Auth login timeout in seconds")
+	cmd.Flags().BoolVar(&enterprise, "enterprise", false, "Store this login as an enterprise session and select an enterprise context")
+	cmd.Flags().StringVar(&contextName, "context", "", "Enterprise context slug or id to select; defaults to platform or the first available context")
 
 	cmd.AddCommand(loginMongoCommand())
 	cmd.AddCommand(loginJWTSecretCommand())
@@ -86,7 +112,13 @@ func loginCommand() *cobra.Command {
 
 func defaultAuthURL() string {
 	if v := strings.TrimSpace(os.Getenv("HBCTL_AUTH_URL")); v != "" {
-		return v
+		return strings.TrimRight(v, "/")
+	}
+	if v := strings.TrimSpace(os.Getenv("HBCTL_SERVER_URL")); v != "" {
+		return strings.TrimRight(v, "/")
+	}
+	if cfg, err := secrets.LoadServerConfig(); err == nil && strings.TrimSpace(cfg.BaseURL) != "" {
+		return strings.TrimRight(strings.TrimSpace(cfg.BaseURL), "/")
 	}
 	return "http://localhost:8080"
 }

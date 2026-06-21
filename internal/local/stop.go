@@ -220,6 +220,8 @@ func fullStackStopElements() []string {
 		"herringbone-search",
 		"fingerprint-scoreset",
 		"fingerprint-identifier",
+		"fingerprint-tuner",
+		"ollama",
 		"parser-cardset",
 		"parser-enrichment",
 		"parser-extractor",

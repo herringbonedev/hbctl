@@ -69,8 +69,15 @@ func Start(opts StartOptions) error {
 	if err != nil {
 		return fmt.Errorf("failed to load MongoDB secret: %w", err)
 	}
+	rootPass, err := secrets.EnsureMongoRootPassword()
+	if err != nil {
+		return fmt.Errorf("failed to load or create protected MongoDB root secret: %w", err)
+	}
 
 	env := blankLifecycleEnv(opts.Enterprise)
+	env["MONGO_ROOT_PASS"] = rootPass
+	env["MONGO_INITDB_ROOT_USERNAME"] = "root"
+	env["MONGO_INITDB_ROOT_PASSWORD"] = rootPass
 	env["MONGO_HOST"] = sec.Host
 	env["MONGO_PORT"] = fmt.Sprintf("%d", sec.Port)
 	env["MONGO_USER"] = sec.User
@@ -159,8 +166,8 @@ func Start(opts StartOptions) error {
 			return err
 		}
 
-		if err := waitHTTP("http://localhost:8080/health", 45*time.Second); err != nil {
-			_ = waitHTTP("http://localhost:8080/docs", 5*time.Second)
+		if err := waitHTTP(serverURLPath("/health"), 45*time.Second); err != nil {
+			_ = waitHTTP(serverURLPath("/docs"), 5*time.Second)
 		}
 
 		if len(desiredServiceTokens) > 0 {
@@ -202,7 +209,7 @@ func Start(opts StartOptions) error {
 			if secretsDir == "" || jwtSecret == nil {
 				return fmt.Errorf("service token bootstrap required but auth runtime secrets were not prepared")
 			}
-			if err := waitHTTP("http://localhost:8080/health", 45*time.Second); err != nil {
+			if err := waitHTTP(serverURLPath("/health"), 45*time.Second); err != nil {
 				return err
 			}
 			if err := ensureServiceTokens(secretsDir, jwtSecret.JWTSecret, desiredServiceTokens, forceTokenRefresh); err != nil {
@@ -248,7 +255,7 @@ func Start(opts StartOptions) error {
 			if secretsDir == "" || jwtSecret == nil {
 				return fmt.Errorf("service token bootstrap required but auth runtime secrets were not prepared")
 			}
-			if err := waitHTTP("http://localhost:8080/health", 45*time.Second); err != nil {
+			if err := waitHTTP(serverURLPath("/health"), 45*time.Second); err != nil {
 				return err
 			}
 			if err := ensureServiceTokens(secretsDir, jwtSecret.JWTSecret, desiredServiceTokens, forceTokenRefresh); err != nil {
@@ -312,6 +319,9 @@ func serviceTokensForStart(opts StartOptions) []ServiceIdentity {
 	needsSharedToken := false
 	for _, element := range elements {
 		element = CanonicalElementName(element)
+		if element == "ollama" {
+			continue
+		}
 		if IsEnterpriseElement(element) && !opts.Enterprise {
 			continue
 		}
@@ -382,7 +392,7 @@ func ensureServiceTokens(secretsDir string, jwtSecret string, services []Service
 		return err
 	}
 
-	authURL := "http://localhost:8080"
+	authURL := configuredServerURL()
 	client := &http.Client{Timeout: 10 * time.Second}
 
 	for _, svc := range toMint {
@@ -722,6 +732,18 @@ func shouldStartElement(element string, composeArgs []string) (bool, string, err
 }
 
 func startElement(project string, env map[string]string, element string) error {
+	element = CanonicalElementName(element)
+	if element == "fingerprint-tuner" {
+		if err := ensureOllamaStarted(project, env); err != nil {
+			return err
+		}
+	}
+	if elementRequiresMongoDiscovery(element) {
+		if err := ensureMongoServiceDiscovery(project, env); err != nil {
+			return err
+		}
+	}
+
 	composeArgs := ComposeFilesForElement(element)
 	start, reason, err := shouldStartElement(element, composeArgs)
 	if err != nil {
@@ -732,7 +754,6 @@ func startElement(project string, env map[string]string, element string) error {
 		return nil
 	}
 
-	element = CanonicalElementName(element)
 	service, err := resolveComposeServiceName(composeArgs, element)
 	if err != nil {
 		if requiredStartElement(element) {
@@ -761,7 +782,12 @@ func startElement(project string, env map[string]string, element string) error {
 
 	args := []string{"-p", project}
 	args = append(args, composeArgs...)
-	args = append(args, "up", "-d", "--no-recreate")
+	args = append(args, "up", "-d")
+	if element == "fingerprint-tuner" {
+		args = append(args, "--force-recreate")
+	} else {
+		args = append(args, "--no-recreate")
+	}
 	if serviceHasFixedHostPort(element) {
 		args = append(args, "--scale", service+"=1")
 		ui.Info("%s publishes a fixed host port; forcing one replica to prevent port conflicts", element)
@@ -773,7 +799,204 @@ func startElement(project string, env map[string]string, element string) error {
 	} else {
 		ui.Step("Starting %s", element)
 	}
-	return docker.ComposeWithEnv(serviceEnv, args...)
+	if err := docker.ComposeWithEnv(serviceEnv, args...); err != nil {
+		return err
+	}
+	if element == "ollama" {
+		return ensureOllamaModel(project)
+	}
+	return nil
+}
+
+func ensureOllamaStarted(project string, env map[string]string) error {
+	start, reason, err := shouldStartElement("ollama", ComposeFilesForElement("ollama"))
+	if err != nil {
+		return err
+	}
+	if !start {
+		ui.Warn("fingerprint-tuner uses Ollama by default, but ollama was not started: %s", reason)
+		return nil
+	}
+	return startElement(project, env, "ollama")
+}
+
+func ensureOllamaModel(project string) error {
+	if strings.EqualFold(strings.TrimSpace(os.Getenv("HBCTL_SKIP_OLLAMA_PULL")), "true") {
+		ui.Skip("ollama model pull: HBCTL_SKIP_OLLAMA_PULL=true")
+		return nil
+	}
+
+	model := ResolveFingerprintTunerModel()
+
+	containers, err := containersForExactService(project, "ollama", true)
+	if err != nil {
+		return err
+	}
+	containerID := ""
+	for _, container := range containers {
+		if isRunningContainer(container) {
+			containerID = container.ID
+			break
+		}
+	}
+	if containerID == "" {
+		ui.Warn("ollama model pull skipped: no running ollama container found")
+		return nil
+	}
+
+	listCmd := exec.Command("docker", "exec", containerID, "ollama", "list")
+	listOut, listErr := listCmd.CombinedOutput()
+	if listErr == nil && strings.Contains(string(listOut), model) {
+		ui.Success("Ollama model already available: %s", model)
+		return nil
+	}
+
+	ui.Step("Pulling Ollama model %s", model)
+	pullCmd := exec.Command("docker", "exec", containerID, "ollama", "pull", model)
+	pullCmd.Stdout = os.Stdout
+	pullCmd.Stderr = os.Stderr
+	pullCmd.Stdin = os.Stdin
+	if err := pullCmd.Run(); err != nil {
+		return fmt.Errorf("failed to pull Ollama model %s: %w", model, err)
+	}
+	ui.Success("Ollama model ready: %s", model)
+	return nil
+}
+
+func elementRequiresMongoDiscovery(element string) bool {
+	switch CanonicalElementName(strings.TrimSpace(element)) {
+	case "", "mongodb", "herringbone-proxy", "ollama", "logingestion-receiver", "operations-center":
+		return false
+	default:
+		return true
+	}
+}
+
+func ensureMongoServiceDiscovery(project string, env map[string]string) error {
+	if err := repairMongoContainerEnvIfNeeded(project); err != nil {
+		return err
+	}
+
+	// Product invariant: any database-backed service started by hbctl must be able
+	// to resolve "mongodb" before its application process boots. Older installs
+	// may already have a protected MongoDB container on a different compose
+	// network. We do not recreate MongoDB or remove data; we only ensure the
+	// existing MongoDB container is running and also attached to the shared
+	// Herringbone network used by current service compose files.
+	mongoID, err := mongoContainerID(project)
+	if err != nil {
+		sec := mongoSecretFromLifecycleEnv(env)
+		if sec == nil {
+			return err
+		}
+		if startErr := ensureCoreDatabase(project, sec); startErr != nil {
+			return startErr
+		}
+		mongoID, err = mongoContainerID(project)
+		if err != nil {
+			return err
+		}
+	}
+
+	if err := ensureDockerNetwork("herringbone_net"); err != nil {
+		return err
+	}
+	if err := connectContainerToNetworkAliases(mongoID, "herringbone_net", []string{"mongodb", "mongo"}); err != nil {
+		return err
+	}
+	return nil
+}
+
+func mongoSecretFromLifecycleEnv(env map[string]string) *secrets.MongoSecret {
+	if env == nil {
+		return nil
+	}
+	user := strings.TrimSpace(env["MONGO_USER"])
+	pass := strings.TrimSpace(env["MONGO_PASS"])
+	if user == "" || pass == "" {
+		return nil
+	}
+	dbName := strings.TrimSpace(env["DB_NAME"])
+	if dbName == "" {
+		dbName = "herringbone"
+	}
+	authDB := strings.TrimSpace(env["AUTH_DB"])
+	if authDB == "" {
+		authDB = dbName
+	}
+	host := strings.TrimSpace(env["MONGO_HOST"])
+	if host == "" {
+		host = "mongodb"
+	}
+	return &secrets.MongoSecret{
+		Host:       host,
+		Port:       atoiDefault(env["MONGO_PORT"], 27017),
+		User:       user,
+		Password:   pass,
+		Database:   dbName,
+		AuthSource: authDB,
+	}
+}
+
+func ensureDockerNetwork(name string) error {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return fmt.Errorf("docker network name is empty")
+	}
+	inspect := exec.Command("docker", "network", "inspect", name)
+	inspect.Env = os.Environ()
+	if err := inspect.Run(); err == nil {
+		return nil
+	}
+	ui.Step("Creating Docker network %s", name)
+	create := exec.Command("docker", "network", "create", name)
+	create.Env = os.Environ()
+	var stderr bytes.Buffer
+	create.Stderr = &stderr
+	if err := create.Run(); err != nil {
+		msg := strings.TrimSpace(stderr.String())
+		if strings.Contains(strings.ToLower(msg), "already exists") {
+			return nil
+		}
+		if msg == "" {
+			msg = err.Error()
+		}
+		return fmt.Errorf("failed to create docker network %s: %s", name, msg)
+	}
+	return nil
+}
+
+func connectContainerToNetworkAliases(containerID string, network string, aliases []string) error {
+	containerID = strings.TrimSpace(containerID)
+	network = strings.TrimSpace(network)
+	if containerID == "" || network == "" {
+		return fmt.Errorf("container id and network are required for network attach")
+	}
+	args := []string{"network", "connect"}
+	for _, alias := range aliases {
+		alias = strings.TrimSpace(alias)
+		if alias != "" {
+			args = append(args, "--alias", alias)
+		}
+	}
+	args = append(args, network, containerID)
+	cmd := exec.Command("docker", args...)
+	cmd.Env = os.Environ()
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		msg := strings.TrimSpace(stderr.String())
+		lower := strings.ToLower(msg)
+		if strings.Contains(lower, "already exists") || strings.Contains(lower, "is already connected") || strings.Contains(lower, "endpoint with name") {
+			return nil
+		}
+		if msg == "" {
+			msg = err.Error()
+		}
+		return fmt.Errorf("failed to connect MongoDB container to %s: %s", network, msg)
+	}
+	ui.Success("MongoDB service discovery ready on %s", network)
+	return nil
 }
 
 func envWithSingleReplicaGuards(env map[string]string, element string) map[string]string {
@@ -966,14 +1189,15 @@ func printContainerReuseTable(containers []herringboneContainer) {
 func ensureCommonMongoSeedData(project string) error {
 	ui.Section("MongoDB seed data")
 
-	if _, err := os.Stat("init-mongo.js"); err != nil {
-		ui.Skip("init-mongo.js not found in current directory")
+	scriptPath, err := findMongoInitScript("")
+	if err != nil {
+		ui.Skip("init-mongo.js not found in current directory or docker/init-mongo.js")
 		return nil
 	}
 
-	ui.Step("Replaying init-mongo.js inside the running MongoDB container")
-	if err := runMongoInitScriptInContainer(project); err != nil {
-		return fmt.Errorf("failed to replay init-mongo.js: %w", err)
+	ui.Step("Replaying %s inside the running MongoDB container", scriptPath)
+	if err := runMongoInitScriptFileInContainer(project, scriptPath); err != nil {
+		return fmt.Errorf("failed to replay %s: %w", scriptPath, err)
 	}
 
 	ui.Success("MongoDB init-mongo.js replay complete")
@@ -1099,13 +1323,66 @@ func mongoContainerID(project string) (string, error) {
 		project = "herringbone"
 	}
 
+	// Prefer the current compose project and whatever Mongo service name the
+	// installed compose file actually exposes. Older local bundles used slightly
+	// different container names, so never assume the literal container is named
+	// "mongodb".
 	if _, err := os.Stat(ComposeMongo); err == nil {
-		cmd := exec.Command("docker", "compose", "-p", project, "-f", ComposeMongo, "ps", "-q", "mongodb")
+		services := []string{"mongodb", "mongo"}
+		if discovered, err := composeConfigServices([]string{"-f", ComposeMongo}); err == nil {
+			for _, svc := range discovered {
+				lower := strings.ToLower(strings.TrimSpace(svc))
+				if lower == "" {
+					continue
+				}
+				if lower == "mongodb" || lower == "mongo" || strings.Contains(lower, "mongo") {
+					services = append([]string{svc}, services...)
+				}
+			}
+		}
+
+		for _, service := range uniqueStrings(services) {
+			cmd := exec.Command("docker", "compose", "-p", project, "-f", ComposeMongo, "ps", "-q", service)
+			cmd.Env = os.Environ()
+			var stdout bytes.Buffer
+			cmd.Stdout = &stdout
+			if err := cmd.Run(); err == nil {
+				ids := strings.Fields(stdout.String())
+				if len(ids) > 0 {
+					return ids[0], nil
+				}
+			}
+		}
+	}
+
+	// Fall back to Herringbone's Docker discovery. This catches older containers
+	// such as herringbone-mongodb-1, explicit container_name variants, and compose
+	// projects that changed names across alpha builds.
+	containers, err := listHerringboneContainers(project, true)
+	if err == nil {
+		candidates := []herringboneContainer{}
+		for _, container := range containers {
+			service := strings.ToLower(strings.TrimSpace(container.RawService))
+			name := strings.ToLower(strings.TrimSpace(container.Name))
+			image := strings.ToLower(strings.TrimSpace(container.Image))
+			if service == "mongodb" || service == "mongo" || strings.Contains(service, "mongo") || name == "mongodb" || strings.Contains(name, "mongo") || strings.Contains(image, "mongo") {
+				candidates = append(candidates, container)
+			}
+		}
+		for _, container := range candidates {
+			if isRunningContainer(container) && strings.TrimSpace(container.ID) != "" {
+				return container.ID, nil
+			}
+		}
+	}
+
+	// Last-resort direct Docker name filters for old local compose/container_name
+	// layouts.
+	for _, pattern := range []string{"^/mongodb$", "mongo", "mongodb"} {
+		cmd := exec.Command("docker", "ps", "-q", "--filter", "name="+pattern)
 		cmd.Env = os.Environ()
 		var stdout bytes.Buffer
-		var stderr bytes.Buffer
 		cmd.Stdout = &stdout
-		cmd.Stderr = &stderr
 		if err := cmd.Run(); err == nil {
 			ids := strings.Fields(stdout.String())
 			if len(ids) > 0 {
@@ -1114,18 +1391,122 @@ func mongoContainerID(project string) (string, error) {
 		}
 	}
 
-	cmd := exec.Command("docker", "ps", "-q", "--filter", "name=^/mongodb$")
-	cmd.Env = os.Environ()
-	var stdout bytes.Buffer
-	cmd.Stdout = &stdout
-	if err := cmd.Run(); err == nil {
-		ids := strings.Fields(stdout.String())
-		if len(ids) > 0 {
-			return ids[0], nil
+	return "", fmt.Errorf("could not find running MongoDB container for project %q; run hbctl status --all and verify the MongoDB service is running", project)
+}
+
+type mongoContainerCandidate struct {
+	ID    string
+	Name  string
+	State string
+}
+
+func mongoContainerAny(project string) (*mongoContainerCandidate, error) {
+	project = strings.TrimSpace(project)
+	if project == "" {
+		project = "herringbone"
+	}
+	containers, err := listHerringboneContainers(project, true)
+	if err == nil {
+		var fallback *mongoContainerCandidate
+		for _, container := range containers {
+			service := strings.ToLower(strings.TrimSpace(container.RawService))
+			name := strings.ToLower(strings.TrimSpace(container.Name))
+			image := strings.ToLower(strings.TrimSpace(container.Image))
+			if service == "mongodb" || service == "mongo" || strings.Contains(service, "mongo") || name == "mongodb" || strings.Contains(name, "mongo") || strings.Contains(image, "mongo") {
+				candidate := &mongoContainerCandidate{ID: strings.TrimSpace(container.ID), Name: strings.TrimSpace(container.Name), State: strings.TrimSpace(container.State)}
+				if name == "mongodb" || service == "mongodb" {
+					return candidate, nil
+				}
+				if fallback == nil {
+					fallback = candidate
+				}
+			}
+		}
+		if fallback != nil {
+			return fallback, nil
 		}
 	}
 
-	return "", fmt.Errorf("could not find running MongoDB container for project %q", project)
+	for _, pattern := range []string{"^/mongodb$", "mongodb", "mongo"} {
+		cmd := exec.Command("docker", "ps", "-aq", "--filter", "name="+pattern)
+		cmd.Env = os.Environ()
+		var stdout bytes.Buffer
+		cmd.Stdout = &stdout
+		if err := cmd.Run(); err == nil {
+			ids := strings.Fields(stdout.String())
+			if len(ids) > 0 {
+				id := ids[0]
+				name := dockerInspectFormat(id, "{{.Name}}")
+				state := dockerInspectFormat(id, "{{.State.Status}}")
+				return &mongoContainerCandidate{ID: id, Name: strings.TrimPrefix(name, "/"), State: state}, nil
+			}
+		}
+	}
+	return nil, fmt.Errorf("no MongoDB container found")
+}
+
+func dockerInspectFormat(containerID string, format string) string {
+	cmd := exec.Command("docker", "inspect", containerID, "--format", format)
+	cmd.Env = os.Environ()
+	var stdout bytes.Buffer
+	cmd.Stdout = &stdout
+	if err := cmd.Run(); err != nil {
+		return ""
+	}
+	return strings.TrimSpace(stdout.String())
+}
+
+func repairMongoContainerEnvIfNeeded(project string) error {
+	candidate, err := mongoContainerAny(project)
+	if err != nil || candidate == nil || strings.TrimSpace(candidate.ID) == "" {
+		return nil
+	}
+
+	cmd := exec.Command("docker", "inspect", candidate.ID, "--format", "{{range .Config.Env}}{{println .}}{{end}}")
+	cmd.Env = os.Environ()
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		msg := strings.TrimSpace(stderr.String())
+		if msg == "" {
+			msg = err.Error()
+		}
+		return fmt.Errorf("failed to inspect MongoDB container environment: %s", msg)
+	}
+
+	hasRootUser := false
+	hasRootPass := false
+	for _, line := range strings.Split(stdout.String(), "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "MONGO_INITDB_ROOT_USERNAME=") && strings.TrimSpace(strings.TrimPrefix(line, "MONGO_INITDB_ROOT_USERNAME=")) != "" {
+			hasRootUser = true
+		}
+		if strings.HasPrefix(line, "MONGO_INITDB_ROOT_PASSWORD=") && strings.TrimSpace(strings.TrimPrefix(line, "MONGO_INITDB_ROOT_PASSWORD=")) != "" {
+			hasRootPass = true
+		}
+	}
+
+	if hasRootUser && hasRootPass {
+		return nil
+	}
+
+	state := strings.ToLower(strings.TrimSpace(candidate.State))
+	if state == "running" {
+		ui.Warn("MongoDB container %s is running but missing root env metadata; leaving it in place and preserving the Mongo volume", candidate.Name)
+		return nil
+	}
+
+	ui.Warn("MongoDB container %s is missing required root env and is not running cleanly; recreating container only and preserving the Mongo volume", candidate.Name)
+	rm := exec.Command("docker", "rm", "-f", candidate.ID)
+	rm.Env = os.Environ()
+	rm.Stdout = os.Stdout
+	rm.Stderr = os.Stderr
+	if err := rm.Run(); err != nil {
+		return fmt.Errorf("failed to remove broken MongoDB container without touching volume: %w", err)
+	}
+	return nil
 }
 
 func ensureDatabase(project string, sec *secrets.MongoSecret) error {
@@ -1162,14 +1543,20 @@ func ensureDatabase(project string, sec *secrets.MongoSecret) error {
 		return nil
 	}
 
+	if err := repairMongoContainerEnvIfNeeded(project); err != nil {
+		return err
+	}
+
 	env := map[string]string{
-		"MONGO_ROOT_PASS": rootPass,
-		"MONGO_HOST":      containerHost,
-		"MONGO_PORT":      fmt.Sprintf("%d", sec.Port),
-		"MONGO_USER":      sec.User,
-		"MONGO_PASS":      sec.Password,
-		"DB_NAME":         sec.Database,
-		"AUTH_DB":         sec.AuthSource,
+		"MONGO_ROOT_PASS":            rootPass,
+		"MONGO_INITDB_ROOT_USERNAME": "root",
+		"MONGO_INITDB_ROOT_PASSWORD": rootPass,
+		"MONGO_HOST":                 containerHost,
+		"MONGO_PORT":                 fmt.Sprintf("%d", sec.Port),
+		"MONGO_USER":                 sec.User,
+		"MONGO_PASS":                 sec.Password,
+		"DB_NAME":                    sec.Database,
+		"AUTH_DB":                    sec.AuthSource,
 	}
 
 	ui.Step("Starting or re-attaching MongoDB without recreate")

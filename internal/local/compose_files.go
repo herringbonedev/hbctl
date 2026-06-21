@@ -29,6 +29,8 @@ const (
 	ComposeProxy                 = "compose.proxy.yml"
 	ComposeFingerprintIdentifier = "compose.fingerprint.identifier.yml"
 	ComposeFingerprintScoreset   = "compose.fingerprint.scoreset.yml"
+	ComposeFingerprintTuner      = "compose.fingerprint.tuner.yml"
+	ComposeOllama                = "compose.ollama.yml"
 )
 
 // CanonicalElementName returns the real compose service name used by
@@ -42,10 +44,14 @@ func CanonicalElementName(element string) string {
 		return "herringbone-proxy"
 	case "mongo", "mongodb":
 		return "mongodb"
+	case "ollama", "llm", "llm-ollama", "local-llm":
+		return "ollama"
 	case "fingerprint-identifier", "fingerprint-identifier-e":
 		return "fingerprint-identifier"
 	case "fingerprint-scoreset", "fingerprint-scoreset-e":
 		return "fingerprint-scoreset"
+	case "fingerprint-tuner", "fingerprint-tuner-e":
+		return "fingerprint-tuner"
 	case "parser-enrichment", "parser-enrichment-e":
 		return "parser-enrichment"
 	default:
@@ -90,6 +96,10 @@ func ComposeFilesForElement(element string) []string {
 		files = append(files, "-f", ComposeFingerprintScoreset, "-f", ComposeFingerprintIdentifier)
 	case "fingerprint-scoreset":
 		files = append(files, "-f", ComposeFingerprintScoreset)
+	case "fingerprint-tuner":
+		files = append(files, "-f", ComposeFingerprintTuner)
+	case "ollama":
+		files = append(files, "-f", ComposeOllama)
 	case "herringbone-proxy":
 		files = append(files, "-f", ComposeProxy)
 	}
@@ -116,7 +126,7 @@ func ComposeFilesForFullStack(enterprise bool) []string {
 		ComposeReceiver,
 	}
 	if enterprise {
-		candidates = append(candidates, ComposeFingerprintScoreset, ComposeFingerprintIdentifier, ComposeParserEnrich)
+		candidates = append(candidates, ComposeFingerprintScoreset, ComposeFingerprintIdentifier, ComposeOllama, ComposeFingerprintTuner, ComposeParserEnrich)
 	}
 
 	seen := map[string]bool{}
@@ -164,7 +174,7 @@ func ComposeFilesForElements(elements []string) []string {
 // inspect container names or require a service-name suffix.
 func IsEnterpriseElement(element string) bool {
 	switch CanonicalElementName(element) {
-	case "fingerprint-scoreset", "fingerprint-identifier", "parser-enrichment":
+	case "fingerprint-scoreset", "fingerprint-identifier", "fingerprint-tuner", "parser-enrichment":
 		return true
 	default:
 		return false

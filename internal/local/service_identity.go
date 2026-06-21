@@ -60,6 +60,24 @@ var BootstrapServices = []ServiceIdentity{
 		},
 	},
 	{
+		Name:           "fingerprint-tuner-e",
+		ID:             serviceUUID("fingerprint-tuner-e"),
+		EnterpriseOnly: true,
+		TokenFiles: []string{
+			"fingerprint_tuner_service_token",
+		},
+		LegacyTokenFiles: []string{
+			"fingerprint_tuner_e_service_token",
+		},
+		Scopes: []string{
+			"fingerprint:tuner:read",
+			"fingerprint:tuner:write",
+			"fingerprint:tuner:admin",
+			"fingerprint:scorecards:read",
+			"fingerprint:scorecards:write",
+		},
+	},
+	{
 		Name:           "fingerprint-identifier-e",
 		ID:             serviceUUID("fingerprint-identifier-e"),
 		EnterpriseOnly: true,
@@ -73,6 +91,8 @@ var BootstrapServices = []ServiceIdentity{
 			"logs:read",
 			"parser:cards:read",
 			"fingerprint:scorecards:read",
+			"fingerprint:tuner:read",
+			"fingerprint:tuner:write",
 		},
 	},
 	{
@@ -173,6 +193,17 @@ func BootstrapServicesForMode(enterprise bool) []ServiceIdentity {
 		if svc.EnterpriseOnly && !enterprise {
 			continue
 		}
+
+		// In enterprise mode, skip core service identities that share the same
+		// runtime token file with their enterprise counterpart. Otherwise a
+		// narrower core token can overwrite the enterprise token.
+		if enterprise && !svc.EnterpriseOnly {
+			switch CanonicalElementName(svc.Name) {
+			case "fingerprint-identifier", "parser-enrichment":
+				continue
+			}
+		}
+
 		out = append(out, svc)
 	}
 	return out

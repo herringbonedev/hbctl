@@ -19,6 +19,13 @@ type RestartOptions struct {
 
 func Restart(opts RestartOptions) error {
 	env := blankLifecycleEnv(opts.Enterprise)
+	if restartTargetNeedsMongo(opts) {
+		var err error
+		env, err = mongoLifecycleEnv(opts.Enterprise)
+		if err != nil {
+			return err
+		}
+	}
 	ui.Header("Herringbone restart")
 
 	if opts.Element != "" {
@@ -78,10 +85,31 @@ func Restart(opts RestartOptions) error {
 	return fmt.Errorf("specify --element, --unit, or --all")
 }
 
+func restartTargetNeedsMongo(opts RestartOptions) bool {
+	if opts.All {
+		return true
+	}
+	if strings.TrimSpace(opts.Element) != "" {
+		return elementRequiresMongoDiscovery(ElementForMode(opts.Element, opts.Enterprise))
+	}
+	if strings.TrimSpace(opts.Unit) != "" {
+		elements := units.UnitElements[strings.TrimSpace(opts.Unit)]
+		if strings.TrimSpace(opts.Unit) == "auth" {
+			elements = []string{AuthElementForMode(opts.Enterprise)}
+		}
+		for _, element := range elements {
+			if elementRequiresMongoDiscovery(element) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func fullStackRestartElements(enterprise bool) []string {
 	elements := []string{"mongodb", "herringbone-proxy", AuthElementForMode(enterprise), "herringbone-logs", "herringbone-search", "parser-cardset", "parser-extractor", "detectionengine-detector", "detectionengine-matcher", "detectionengine-ruleset", "incidents-incidentset", "incidents-correlator", "incidents-orchestrator", "operations-center"}
 	if enterprise {
-		elements = append(elements, "fingerprint-scoreset", "fingerprint-identifier", "parser-enrichment")
+		elements = append(elements, "fingerprint-scoreset", "fingerprint-identifier", "ollama", "fingerprint-tuner", "parser-enrichment")
 	}
 	return elements
 }
@@ -99,6 +127,11 @@ func restartElement(project string, env map[string]string, element string) error
 	if !start {
 		ui.Skip("%s: %s", element, reason)
 		return nil
+	}
+	if elementRequiresMongoDiscovery(element) {
+		if err := ensureMongoServiceDiscovery(project, env); err != nil {
+			return err
+		}
 	}
 	ui.Step("Restarting %s", element)
 	composeArgs := []string{"-p", project}

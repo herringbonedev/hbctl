@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/herringbonedev/hbctl/internal/local"
@@ -17,11 +18,17 @@ func startCommand() *cobra.Command {
 	var noTokenCreate bool
 	var bootstrapTokens bool
 	var enterprise bool
+	var model string
 
 	cmd := &cobra.Command{
 		Use:   "start",
 		Short: "Start an element, a unit, or the full stack",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if strings.TrimSpace(model) != "" {
+				resolvedModel := strings.TrimSpace(model)
+				os.Setenv("FINGERPRINT_TUNER_LLM_MODEL", resolvedModel)
+				os.Setenv("OLLAMA_MODEL", resolvedModel)
+			}
 			if !all && strings.TrimSpace(element) == "" && strings.TrimSpace(unit) == "" {
 				return fmt.Errorf("specify --element, --unit, or --all")
 			}
@@ -59,5 +66,6 @@ func startCommand() *cobra.Command {
 	_ = cmd.Flags().MarkHidden("bootstrap-tokens")
 	_ = cmd.Flags().MarkHidden("no-token-create")
 	cmd.Flags().BoolVar(&enterprise, "enterprise", false, "Start enterprise services and set HB_ENTERPRISE=true")
+	cmd.Flags().StringVar(&model, "model", "", "Ollama model for enterprise fingerprint tuner")
 	return cmd
 }

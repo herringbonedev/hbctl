@@ -16,6 +16,8 @@ var AllElements = []ElementInfo{
 
 	{Name: "fingerprint-scoreset", Description: "Enterprise fingerprint score-card CRUD service backed by MongoDB score_cards", Unit: "fingerprint"},
 	{Name: "fingerprint-identifier", Description: "Enterprise source fingerprint identification service using MongoDB score_cards", Unit: "fingerprint"},
+	{Name: "ollama", Description: "Local Ollama LLM runtime used by fingerprint-tuner", Unit: "llm"},
+	{Name: "fingerprint-tuner", Description: "Enterprise AI-assisted fingerprint score-card tuning service", Unit: "fingerprint"},
 
 	{Name: "parser-cardset", Description: "Cardset metadata parser service", Unit: "parser"},
 	{Name: "parser-enrichment", Description: "Enterprise log enrichment parser service", Unit: "parser"},
@@ -39,18 +41,19 @@ var UnitElements = map[string][]string{
 	"logs":              {"herringbone-logs"},
 	"search":            {"herringbone-search"},
 	"auth":              {"herringbone-auth"},
-	"fingerprint":       {"fingerprint-scoreset", "fingerprint-identifier"},
+	"fingerprint":       {"fingerprint-scoreset", "fingerprint-identifier", "ollama", "fingerprint-tuner"},
 	"operations-center": {"operations-center"},
 	"parser":            {"parser-cardset", "parser-enrichment", "parser-extractor"},
 	"detection":         {"detectionengine-detector", "detectionengine-matcher", "detectionengine-ruleset"},
 	"incidents":         {"incidents-incidentset", "incidents-correlator", "incidents-orchestrator"},
+	"llm":               {"ollama"},
 }
 
 var ServiceUnits = map[string][]string{
 	"logs":              {"herringbone-logs", "herringbone-search", "mongodb", "herringbone-proxy"},
 	"search":            {"herringbone-search", "mongodb", "herringbone-proxy"},
 	"auth":              {"herringbone-auth", "mongodb", "herringbone-proxy"},
-	"fingerprint":       {"fingerprint-scoreset", "fingerprint-identifier", "mongodb", "herringbone-proxy"},
+	"fingerprint":       {"fingerprint-scoreset", "fingerprint-identifier", "ollama", "fingerprint-tuner", "mongodb", "herringbone-proxy"},
 	"receiver":          {"logingestion-receiver", "mongodb", "herringbone-proxy"},
 	"parser":            {"parser-cardset", "parser-enrichment", "parser-extractor", "fingerprint-identifier", "fingerprint-scoreset", "mongodb", "herringbone-proxy"},
 	"detection":         {"detectionengine-detector", "detectionengine-matcher", "detectionengine-ruleset", "mongodb", "herringbone-proxy"},
@@ -58,4 +61,5 @@ var ServiceUnits = map[string][]string{
 	"operations-center": {"operations-center", "herringbone-proxy"},
 	"database":          {"mongodb"},
 	"proxy":             {"herringbone-proxy"},
+	"llm":               {"ollama"},
 }

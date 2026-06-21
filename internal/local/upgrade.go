@@ -196,7 +196,7 @@ func fullStackUpgradeElements(enterprise bool) []string {
 		"operations-center",
 	}
 	if enterprise {
-		elements = append(elements, "fingerprint-scoreset", "fingerprint-identifier", "parser-enrichment")
+		elements = append(elements, "fingerprint-scoreset", "fingerprint-identifier", "ollama", "fingerprint-tuner", "parser-enrichment")
 	}
 	return elements
 }
@@ -230,6 +230,11 @@ func upgradeElement(project string, env map[string]string, element string, pull 
 	}
 
 	ui.Section(element)
+	if elementRequiresMongoDiscovery(element) && !dryRun {
+		if err := ensureMongoServiceDiscovery(project, env); err != nil {
+			return err
+		}
+	}
 	composeArgs := []string{"-p", project}
 	composeArgs = append(composeArgs, composeFiles...)
 

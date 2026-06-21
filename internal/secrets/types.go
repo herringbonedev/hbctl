@@ -28,10 +28,16 @@ type AuthToken struct {
 	SavedAt     string `json:"saved_at,omitempty"`
 }
 
+type ServerConfig struct {
+	BaseURL string `json:"base_url"`
+	SavedAt string `json:"saved_at,omitempty"`
+}
+
 type Store struct {
-	MongoDB           *MongoSecret `json:"mongodb,omitempty"`
-	MongoRootPassword string       `json:"mongo_root_password,omitempty"`
-	JWTSecret         *JWTSecret   `json:"jwtpass,omitempty"`
-	ServiceKey        *ServiceKey  `json:"servicekey,omitempty"`
-	AuthToken         *AuthToken   `json:"auth_token,omitempty"`
+	MongoDB           *MongoSecret  `json:"mongodb,omitempty"`
+	MongoRootPassword string        `json:"mongo_root_password,omitempty"`
+	JWTSecret         *JWTSecret    `json:"jwtpass,omitempty"`
+	ServiceKey        *ServiceKey   `json:"servicekey,omitempty"`
+	AuthToken         *AuthToken    `json:"auth_token,omitempty"`
+	Server            *ServerConfig `json:"server,omitempty"`
 }

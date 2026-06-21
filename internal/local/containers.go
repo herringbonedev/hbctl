@@ -15,6 +15,7 @@ import (
 
 type herringboneContainer struct {
 	ID         string
+	Image      string
 	Name       string
 	Service    string
 	RawService string
@@ -107,6 +108,7 @@ func listHerringboneContainers(project string, includeStopped bool) ([]herringbo
 
 		containers = append(containers, herringboneContainer{
 			ID:         strings.TrimSpace(row.ID),
+			Image:      strings.TrimSpace(row.Image),
 			Name:       name,
 			Service:    CanonicalElementName(service),
 			RawService: strings.TrimSpace(service),

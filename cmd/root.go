@@ -48,6 +48,13 @@ func init() {
 	rootCmd.AddCommand(pruneCommand())
 	rootCmd.AddCommand(logsCommand())
 	rootCmd.AddCommand(loginCommand())
+	rootCmd.AddCommand(mongodbCommand())
+	rootCmd.AddCommand(logoutCommand())
+	rootCmd.AddCommand(serverCommand())
+	rootCmd.AddCommand(contextCommand())
+	rootCmd.AddCommand(bootstrapCommand())
+	rootCmd.AddCommand(whoamiCommand())
 	rootCmd.AddCommand(receiverCommand())
 	rootCmd.AddCommand(releasesCommand())
+	rootCmd.AddCommand(modelCommand())
 }

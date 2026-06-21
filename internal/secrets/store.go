@@ -266,60 +266,25 @@ func getPassphrase(confirm bool) (string, error) {
 }
 
 func SaveAuthToken(secret *AuthToken) error {
-	path, err := secretsPath()
-	if err != nil {
-		return err
-	}
+	// Auth tokens are short-lived session material, not long-lived configuration.
+	// Store them in a separate chmod 0600 session file so normal CLI commands can
+	// reuse the login token without prompting for the encrypted secrets passphrase.
+	return SaveAuthSession(secret)
+}
 
-	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0700); err != nil {
-		return err
-	}
-
-	firstTime := false
-	if _, err := os.Stat(path); os.IsNotExist(err) {
-		firstTime = true
-	}
-
-	pass, err := getPassphrase(firstTime)
-	if err != nil {
-		return err
-	}
-
-	var store Store
-
-	if !firstTime {
-		data, err := os.ReadFile(path)
-		if err != nil {
-			return err
-		}
-		plain, err := decrypt(data, pass)
-		if err != nil {
-			return errors.New("failed to decrypt secrets (wrong passphrase?)")
-		}
-		_ = json.Unmarshal(plain, &store)
-	}
-
-	store.AuthToken = secret
-
-	plain, err := json.MarshalIndent(store, "", "  ")
-	if err != nil {
-		return err
-	}
-
-	enc, err := encrypt(plain, pass)
-	if err != nil {
-		return err
-	}
-
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, enc, 0600); err != nil {
-		return err
-	}
-	return os.Rename(tmp, path)
+func SaveAuthTokenSession(secret *AuthToken, enterprise bool, context *ContextToken) error {
+	return SaveAuthSessionMode(secret, enterprise, context)
 }
 
 func LoadAuthToken() (*AuthToken, error) {
+	// Prefer the plaintext user-session token. This avoids prompting for the
+	// encrypted hbctl secrets store on every normal CLI command.
+	if token, err := LoadAuthSession(); err == nil {
+		return token, nil
+	}
+
+	// Backward compatibility: older alpha builds stored auth_token in secrets.enc.
+	// If no session file exists yet, fall back to the legacy encrypted location.
 	path, err := secretsPath()
 	if err != nil {
 		return nil, err
@@ -349,6 +314,9 @@ func LoadAuthToken() (*AuthToken, error) {
 		return nil, errors.New("no auth token stored")
 	}
 
+	// Migrate the legacy token into the session file so the next command does not
+	// need to unlock secrets.enc again.
+	_ = SaveAuthSession(store.AuthToken)
 	return store.AuthToken, nil
 }
 
@@ -583,4 +551,135 @@ func decrypt(data []byte, pass string) ([]byte, error) {
 	ciphertext := rest[gcm.NonceSize():]
 
 	return gcm.Open(nil, nonce, ciphertext, nil)
+}
+
+func SaveServerConfig(config *ServerConfig) error {
+	path, err := secretsPath()
+	if err != nil {
+		return err
+	}
+
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		return err
+	}
+
+	firstTime := false
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		firstTime = true
+	}
+
+	pass, err := getPassphrase(firstTime)
+	if err != nil {
+		return err
+	}
+
+	var store Store
+	if !firstTime {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		plain, err := decrypt(data, pass)
+		if err != nil {
+			return errors.New("failed to decrypt secrets (wrong passphrase?)")
+		}
+		_ = json.Unmarshal(plain, &store)
+	}
+
+	store.Server = config
+
+	plain, err := json.MarshalIndent(store, "", "  ")
+	if err != nil {
+		return err
+	}
+
+	enc, err := encrypt(plain, pass)
+	if err != nil {
+		return err
+	}
+
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, enc, 0600); err != nil {
+		return err
+	}
+	return os.Rename(tmp, path)
+}
+
+func LoadServerConfig() (*ServerConfig, error) {
+	path, err := secretsPath()
+	if err != nil {
+		return nil, err
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+
+	pass, err := getPassphrase(false)
+	if err != nil {
+		return nil, err
+	}
+
+	plain, err := decrypt(data, pass)
+	if err != nil {
+		return nil, errors.New("failed to decrypt secrets (wrong passphrase?)")
+	}
+
+	var store Store
+	if err := json.Unmarshal(plain, &store); err != nil {
+		return nil, err
+	}
+
+	if store.Server == nil || strings.TrimSpace(store.Server.BaseURL) == "" {
+		return nil, errors.New("no server location stored")
+	}
+
+	return store.Server, nil
+}
+
+func ClearServerConfig() error {
+	path, err := secretsPath()
+	if err != nil {
+		return err
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+
+	pass, err := getPassphrase(false)
+	if err != nil {
+		return err
+	}
+
+	plain, err := decrypt(data, pass)
+	if err != nil {
+		return errors.New("failed to decrypt secrets (wrong passphrase?)")
+	}
+
+	var store Store
+	if err := json.Unmarshal(plain, &store); err != nil {
+		return err
+	}
+
+	store.Server = nil
+
+	plain, err = json.MarshalIndent(store, "", "  ")
+	if err != nil {
+		return err
+	}
+
+	enc, err := encrypt(plain, pass)
+	if err != nil {
+		return err
+	}
+
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, enc, 0600); err != nil {
+		return err
+	}
+	return os.Rename(tmp, path)
 }
